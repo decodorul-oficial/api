@@ -112,8 +112,8 @@ async function initializeServer() {
     app.use(express.json({ limit: '10mb' }));
 
     // Inițializează repository-urile
-    const stiriRepository = new StiriRepository(supabaseClient);
-    const userRepository = new UserRepository(supabaseClient);
+    const stiriRepository = new StiriRepository(supabaseClient.getServiceClient());
+    const userRepository = new UserRepository(supabaseClient.getServiceClient());
 
     // Inițializează serviciile
     const userService = new UserService(userRepository);
