@@ -1,0 +1,68 @@
+# =============================================================================
+# FIȘIERE ȘI DIRECTOARE EXCLUSE DIN DEPLOYMENT-UL VERCEL
+# =============================================================================
+
+# Fișiere de configurare pentru dezvoltare
+.env
+.env.local
+.env.development
+.env.test
+
+# Fișiere de logging
+*.log
+logs/
+
+# Fișiere temporare
+.tmp/
+temp/
+
+# Cache-uri
+.cache/
+node_modules/.cache/
+
+# Fișiere de test
+coverage/
+.nyc_output/
+test-results/
+
+# Fișiere de documentație
+docs/
+*.md
+!README.md
+
+# Fișiere de configurare pentru IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Fișiere de sistem
+.DS_Store
+Thumbs.db
+
+# Fișiere de backup
+*.bak
+*.backup
+
+# Fișiere de configurare pentru Git
+.git/
+.gitignore
+
+# Fișiere de configurare pentru npm
+.npmrc
+.npm/
+
+# Fișiere de configurare pentru ESLint
+.eslintcache
+
+# Fișiere de configurare pentru Jest
+.jest/
+
+# Fișiere de configurare pentru nodemon
+nodemon.json
+
+# Fișiere de exemplu
+examples/
+
+# Fișiere de configurare pentru Vercel (pentru a evita conflictele)
+vercel.json
