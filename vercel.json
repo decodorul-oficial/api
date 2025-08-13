@@ -3,19 +3,19 @@
   "name": "monitorul-oficial-api",
   "description": "API GraphQL pentru Monitorul Oficial cu Supabase și Apollo Server",
   "functions": {
-    "src/index.js": {
+    "api/index.js": {
       "maxDuration": 30
     }
   },
   "rewrites": [
     {
-      "source": "/api/(.*)",
-      "destination": "/src/index.js"
+      "source": "/(.*)",
+      "destination": "/api/index.js"
     }
   ],
   "headers": [
     {
-      "source": "/api/(.*)",
+      "source": "/(.*)",
       "headers": [
         {
           "key": "X-Content-Type-Options",
