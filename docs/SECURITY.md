@@ -98,6 +98,16 @@ helmet: {
       objectSrc: ["'none'"],
       mediaSrc: ["'self'"],
       frameSrc: ["'none'"]
+În dezvoltare sau când `ENABLE_GRAPHQL_UI=true`, CSP se relaxează automat pentru a permite încărcarea UI-ului Apollo Sandbox și a landing page-ului:
+
+```
+frameSrc: https://sandbox.embed.apollographql.com
+scriptSrc: https://embeddable-sandbox.cdn.apollographql.com 'unsafe-inline'
+styleSrc: 'unsafe-inline' https://fonts.googleapis.com
+fontSrc: https://fonts.gstatic.com
+defaultSrc/manifestSrc: https://apollo-server-landing-page.cdn.apollographql.com
+connectSrc: + https://sandbox.embed.apollographql.com https://embeddable-sandbox.cdn.apollographql.com
+```
     }
   },
   hsts: {

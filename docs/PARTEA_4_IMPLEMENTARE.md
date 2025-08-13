@@ -9,7 +9,7 @@ Această documentație descrie implementarea completă a Partea 4 - Integrarea D
 ### Fișiere Create/Modificate
 
 ```
-src/
+api/src/
 ├── config/
 │   ├── validation.js          # NOU - Scheme de validare Zod
 │   └── index.js               # MODIFICAT - Configurații de securitate extinse
@@ -30,7 +30,7 @@ env.example                    # MODIFICAT - Variabile de mediu extinse
 
 ## 2. Validarea Riguroasă a Input-urilor
 
-### Implementare: `src/config/validation.js`
+### Implementare: `api/src/config/validation.js`
 
 **Principii Respectate:**
 - **Single Responsibility**: Fiecare schemă are o responsabilitate clară
@@ -65,7 +65,7 @@ export const passwordSchema = z
 
 ## 3. Middleware de Securitate Avansat
 
-### Implementare: `src/middleware/security.js`
+### Implementare: `api/src/middleware/security.js`
 
 **Arhitectură Modulară:**
 - Fiecare middleware este independent și reutilizabil
@@ -129,7 +129,7 @@ export function timingAttackPreventionMiddleware(req, res, next) {
 
 ## 4. Configurații de Securitate Extinse
 
-### Implementare: `src/config/index.js`
+### Implementare: `api/src/config/index.js`
 
 **Configurații Helmet:**
 ```javascript
@@ -187,7 +187,7 @@ export function validateEnvironment() {
 
 ## 5. Integrarea în Resolver-i GraphQL
 
-### Implementare: `src/api/resolvers.js`
+### Implementare: `api/src/api/resolvers.js`
 
 **Validare în Toate Mutațiile:**
 ```javascript
@@ -219,7 +219,7 @@ getStiri: async (parent, args, context) => {
 
 ## 6. Configurația Serverului Apollo
 
-### Implementare: `src/index.js`
+### Implementare: `api/src/index.js`
 
 **Middleware-uri de Securitate:**
 ```javascript

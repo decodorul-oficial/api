@@ -24,7 +24,7 @@ Această documentație prezintă implementarea completă a sistemului de rate li
 ### 2. Structura Modulară
 
 ```
-src/
+api/src/
 ├── config/
 │   └── subscriptions.js          # Configurația planurilor
 ├── middleware/
@@ -69,7 +69,7 @@ export const SUBSCRIPTION_TIERS = {
 - ✅ Funcții helper pentru validare și verificare
 - ✅ Documentație completă cu JSDoc
 
-### 2. Middleware-ul de Rate Limiting (`src/middleware/rateLimiter.js`)
+### 2. Middleware-ul de Rate Limiting (`api/src/middleware/rateLimiter.js`)
 
 #### Funcția Principală: `createRateLimiterMiddleware`
 
@@ -97,7 +97,7 @@ export function createRateLimiterMiddleware(userRepository) {
 3. **`debugRateLimit`** - Debugging și monitorizare
 4. **`checkIpThrottling`** - Throttling pe bază de IP (opțional)
 
-### 3. Repository-ul pentru Utilizatori (`src/database/repositories/UserRepository.js`)
+### 3. Repository-ul pentru Utilizatori (`api/src/database/repositories/UserRepository.js`)
 
 #### Metode Implementate
 
@@ -116,7 +116,7 @@ class UserRepository {
 - ✅ Operațiuni asincrone optimizate
 - ✅ Suport pentru paginare
 
-### 4. Schema GraphQL Actualizată (`src/api/schema.js`)
+### 4. Schema GraphQL Actualizată (`api/src/api/schema.js`)
 
 #### Tipul Nou: `RateLimitInfo`
 
@@ -139,7 +139,7 @@ type Query {
 }
 ```
 
-### 5. Resolver-i Actualizați (`src/api/resolvers.js`)
+### 5. Resolver-i Actualizați (`api/src/api/resolvers.js`)
 
 ```javascript
 // Query pentru informații despre rate limiting

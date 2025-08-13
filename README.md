@@ -7,7 +7,7 @@ API GraphQL robust și scalabil pentru Monitorul Oficial, construit cu Node.js, 
 Proiectul respectă principiile SOLID și implementează o arhitectură modulară:
 
 ```
-src/
+api/src/
 ├── api/                    # Definiții GraphQL
 │   ├── schema.js          # Schema GraphQL
 │   └── resolvers.js       # Resolver-i GraphQL
@@ -26,7 +26,7 @@ src/
 ├── middleware/            # Middleware-uri
 │   ├── auth.js           # Autentificare
 │   └── rateLimiter.js    # Rate limiting
-└── index.js              # Punctul de intrare
+└── index.js              # Punctul de intrare (funcție serverless Vercel / server local)
 ```
 
 ## 🚀 Caracteristici
@@ -85,12 +85,15 @@ SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
 SUPABASE_ANON_KEY=your-anon-key
 NODE_ENV=development
 PORT=4000
+ENABLE_GRAPHQL_UI=true
 ```
 
 4. **Configurează baza de date**
-Rulează scripturile SQL din `database/` în Supabase:
-- `database/schema.sql` - Schema bazei de date
-- `database/seed.sql` - Date de test (opțional)
+- În Supabase Dashboard → Settings → Data API: Enable Data API, expune `public` în "Exposed schemas", Save și Restart API
+- Rulează scripturile SQL din `database/` în Supabase:
+  - `database/schema.sql` sau migrațiile din `database/migrations/`
+  - `database/seed.sql` - Date de test (opțional)
+- Dacă vezi erori PostgREST de tip `PGRST002`, rulează în SQL editor: `NOTIFY pgrst, 'reload schema';`
 
 5. **Pornește serverul**
 ```bash
@@ -166,6 +169,10 @@ Pentru cererile autentificate, adaugă header-ul:
 ```
 Authorization: Bearer <your-jwt-token>
 ```
+Pentru request-urile POST făcute din browser (nu din client dedicat), Apollo Server aplică protecție CSRF. Asigură-te că trimiți `Content-Type: application/json` sau un header preflight ex. `apollo-require-preflight: true`.
+
+### UI Apollo Sandbox (opțional)
+- În dezvoltare sau când `ENABLE_GRAPHQL_UI=true`, endpoint-ul `/graphql` servește UI-ul Apollo Sandbox. CSP se relaxează doar în acest caz. În producție UI este dezactivat implicit.
 
 ## 🔧 Configurare
 
@@ -195,7 +202,7 @@ export const SUBSCRIPTION_TIERS = {
 
 ### Rate Limiting
 
-Rate limiting-ul se aplică automat pentru toate cererile autentificate. Utilizatorii neautentificați nu au limită, dar nu pot accesa date sensibile.
+Rate limiting-ul se aplică automat pentru toate cererile autentificate. Este integrat ca plugin Apollo (rulând în `didResolveOperation`) și folosește tabela `public.usage_logs` din Supabase. Utilizatorii neautentificați nu au limită, dar nu pot accesa date sensibile.
 
 ### Securitate
 
@@ -237,7 +244,10 @@ Endpoint-ul `/health` returnează statusul serverului:
 ### Vercel
 
 1. **Configurează variabilele de mediu în Vercel**
-2. **Deploy automat prin Git**
+   - SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY (din proiectul corect)
+   - (opțional) ENABLE_GRAPHQL_UI=true doar dacă dorești UI în producție
+2. **Enable Data API** în proiectul Supabase (Settings → Data API) și expune schema `public`, apoi Restart API
+3. **Deploy automat prin Git**
 
 ### Alte platforme
 

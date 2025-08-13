@@ -44,14 +44,14 @@ export const SUBSCRIPTION_TIERS = {
 };
 ```
 
-#### 2. Middleware-ul de Rate Limiting (`src/middleware/rateLimiter.js`)
+#### 2. Middleware-ul de Rate Limiting (`api/src/middleware/rateLimiter.js`)
 
 Middleware-ul principal care:
 - Verifică limita pentru fiecare cerere
 - Loghează cererile asincron
 - Aruncă erori când limita este depășită
 
-#### 3. Repository-ul pentru Utilizatori (`src/database/repositories/UserRepository.js`)
+#### 3. Repository-ul pentru Utilizatori (`api/src/database/repositories/UserRepository.js`)
 
 Gestionează:
 - Numărarea cererilor din ultimele 24 de ore
