@@ -2,6 +2,7 @@
  * Punctul de intrare principal al aplicației
  * Asamblează toate modulele și configurează serverul Apollo
  * Respectă principiile SOLID prin injectarea dependențelor și separarea responsabilităților
+ * Adaptat pentru funcționarea ca serverless function pe Vercel
  */
 
 /**
@@ -79,18 +80,27 @@ import { createSecurityMiddleware } from './middleware/security.js';
 import typeDefs from './api/schema.js';
 import { createResolvers } from './api/resolvers.js';
 
+// Variabile globale pentru serverless
+let server = null;
+let app = null;
+let httpServer = null;
+
 /**
- * Funcția principală care inițializează și pornește serverul
+ * Inițializează serverul Apollo și Express pentru serverless
  */
-async function startServer() {
+async function initializeServer() {
+  if (server && app && httpServer) {
+    return { server, app, httpServer };
+  }
+
   try {
     // Validează variabilele de mediu
     validateEnvironment();
     console.log('✅ Variabilele de mediu validate cu succes');
 
     // Inițializează Express și HTTP server
-    const app = express();
-    const httpServer = http.createServer(app);
+    app = express();
+    httpServer = http.createServer(app);
 
     // Configurează middleware-urile de securitate
     app.use(helmet(securityConfig.helmet));
@@ -98,75 +108,61 @@ async function startServer() {
     // Configurează CORS
     app.use(cors(securityConfig.cors));
 
-    // Aplică middleware-urile de securitate avansate
-    const securityMiddleware = createSecurityMiddleware();
-    securityMiddleware.forEach(middleware => app.use(middleware));
+    // Inițializează repository-urile
+    const stiriRepository = new StiriRepository(supabaseClient);
+    const userRepository = new UserRepository(supabaseClient);
 
-    // Parsează JSON cu limită de securitate
-    app.use(express.json({ limit: securityConfig.maxRequestSize }));
-
-    // Inițializează repository-urile cu injecția dependențelor
-    const stiriRepository = new StiriRepository(supabaseClient.getServiceClient());
-    const userRepository = new UserRepository(supabaseClient.getServiceClient());
-
-    // Inițializează serviciile cu injecția dependențelor
-    const userService = new UserService(supabaseClient.getServiceClient(), userRepository);
+    // Inițializează serviciile
+    const userService = new UserService(userRepository);
     const stiriService = new StiriService(stiriRepository);
 
-    // Creează resolver-ii cu serviciile injectate
-    const resolvers = createResolvers({
-      userService,
-      stiriService,
-      userRepository
-    });
+    // Creează resolver-ii
+    const resolvers = createResolvers(userService, stiriService);
 
     // Configurează serverul Apollo
-    const server = new ApolloServer({
+    server = new ApolloServer({
       typeDefs,
       resolvers,
-      introspection: apolloConfig.introspection,
       plugins: [
         ApolloServerPluginDrainHttpServer({ httpServer }),
-        // Plugin pentru rate limiting
         {
-          requestDidStart: async (requestContext) => {
-            const rateLimiter = createRateLimiterMiddleware(userRepository);
-            await rateLimiter(requestContext);
+          requestDidStart: async ({ request, document }) => {
+            // Validarea complexității query-ului
+            if (document) {
+              const complexity = calculateQueryComplexity(document);
+              const maxComplexity = parseInt(process.env.MAX_QUERY_COMPLEXITY) || 1000;
+              
+              if (complexity > maxComplexity) {
+                throw new GraphQLError(
+                  `Query prea complex. Complexitatea: ${complexity}, Maxim permis: ${maxComplexity}`,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  { code: 'QUERY_TOO_COMPLEX' }
+                );
+              }
+            }
           }
         }
       ],
+      introspection: apolloConfig.introspection,
       formatError: (error) => {
-        // Logăm erorile pentru debugging
-        console.error('GraphQL Error:', {
-          message: error.message,
-          code: error.extensions?.code,
-          path: error.path,
-          stack: error.extensions?.exception?.stacktrace
-        });
-
-        // Returnăm eroarea formatată pentru client
-        return {
-          message: error.message,
-          code: error.extensions?.code || 'INTERNAL_ERROR',
-          path: error.path
-        };
+        console.error('GraphQL Error:', error);
+        
+        // Nu expune detalii interne în producție
+        if (process.env.NODE_ENV === 'production') {
+          return {
+            message: error.message,
+            code: error.extensions?.code || 'INTERNAL_ERROR'
+          };
+        }
+        
+        return error;
       },
       validationRules: [
-        // Limitează adâncimea query-urilor pentru a preveni atacurile
-        depthLimit(apolloConfig.depthLimit, {
-          ignore: ['__typename']
-        }),
-        // Regulă suplimentară pentru limitarea complexității query-urilor
-        (context) => {
-          const query = context.getDocument();
-          const complexity = calculateQueryComplexity(query);
-          
-          if (complexity > securityConfig.maxQueryComplexity) {
-            throw new GraphQLError('Query prea complex', {
-              extensions: { code: 'QUERY_TOO_COMPLEX' }
-            });
-          }
-        }
+        depthLimit(parseInt(process.env.MAX_QUERY_DEPTH) || 7)
       ]
     });
 
@@ -196,7 +192,8 @@ async function startServer() {
       res.json({
         status: 'healthy',
         timestamp: new Date().toISOString(),
-        version: '1.0.0'
+        version: '1.0.0',
+        environment: process.env.NODE_ENV || 'development'
       });
     });
 
@@ -206,6 +203,7 @@ async function startServer() {
         name: 'Monitorul Oficial API',
         version: '1.0.0',
         description: 'API GraphQL pentru Monitorul Oficial',
+        environment: process.env.NODE_ENV || 'development',
         endpoints: {
           graphql: '/graphql',
           health: '/health'
@@ -222,6 +220,54 @@ async function startServer() {
         message: process.env.NODE_ENV === 'development' ? error.message : 'O eroare neașteptată a apărut'
       });
     });
+
+    return { server, app, httpServer };
+
+  } catch (error) {
+    console.error('❌ Eroare la inițializarea serverului:', error);
+    throw error;
+  }
+}
+
+/**
+ * Funcția principală pentru serverless (Vercel)
+ */
+export default async function handler(req, res) {
+  try {
+    const { server, app, httpServer } = await initializeServer();
+    
+    // Simulează un request Express pentru serverless
+    const expressReq = {
+      ...req,
+      url: req.url.replace('/api', ''),
+      originalUrl: req.url.replace('/api', '')
+    };
+    
+    const expressRes = {
+      ...res,
+      setHeader: (name, value) => res.setHeader(name, value),
+      write: (data) => res.write(data),
+      end: (data) => res.end(data)
+    };
+
+    // Procesează request-ul prin Express
+    app(expressReq, expressRes);
+
+  } catch (error) {
+    console.error('❌ Eroare în handler serverless:', error);
+    res.status(500).json({
+      error: 'Eroare internă a serverului',
+      message: process.env.NODE_ENV === 'development' ? error.message : 'O eroare neașteptată a apărut'
+    });
+  }
+}
+
+/**
+ * Funcția pentru pornirea serverului local (dezvoltare)
+ */
+async function startServer() {
+  try {
+    const { server, app, httpServer } = await initializeServer();
 
     // Pornește serverul HTTP
     const port = apolloConfig.port;
@@ -260,9 +306,7 @@ async function startServer() {
   }
 }
 
-// Pornește serverul dacă acest fișier este rulat direct
+// Pornește serverul dacă acest fișier este rulat direct (dezvoltare locală)
 if (import.meta.url === `file://${process.argv[1]}`) {
   startServer();
 }
-
-export default startServer;
