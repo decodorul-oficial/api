@@ -108,6 +108,9 @@ async function initializeServer() {
     // Configurează CORS
     app.use(cors(securityConfig.cors));
 
+    // Parsează JSON
+    app.use(express.json({ limit: '10mb' }));
+
     // Inițializează repository-urile
     const stiriRepository = new StiriRepository(supabaseClient);
     const userRepository = new UserRepository(supabaseClient);

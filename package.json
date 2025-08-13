@@ -2,6 +2,7 @@
   "name": "monitorul-oficial-api",
   "version": "1.0.0",
   "description": "API GraphQL pentru Monitorul Oficial cu Supabase și Apollo Server",
+  "type": "module",
   "main": "src/index.js",
   "scripts": {
     "start": "node src/index.js",
