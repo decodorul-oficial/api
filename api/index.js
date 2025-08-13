@@ -1,76 +1,77 @@
-/**
- * Vercel Serverless Function Entry Point
- * Versiune simplificată pentru testare
- */
+// Importurile necesare din biblioteci
+const { ApolloServer } = require('@apollo/server');
+const { expressMiddleware } = require('@apollo/server/express4');
+const express = require('express');
+const http = require('http');
+const cors = require('cors');
+const helmet = require('helmet');
+const depthLimit = require('graphql-depth-limit');
 
-export default async function handler(req, res) {
-  // Setează headers pentru JSON și CORS
-  res.setHeader('Content-Type', 'application/json');
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+// Importurile modulelor tale locale
+const config = require('../src/config');
+const typeDefs = require('../src/api/schema');
+const resolvers = require('../src/api/resolvers');
+const supabase = require('../src/services/supabaseClient'); // Clientul Supabase
+const { rateLimiter } = require('../src/middleware/rateLimiter'); // Middleware-ul de rate-limiting
 
-  // Handle preflight requests
-  if (req.method === 'OPTIONS') {
-    res.status(200).end();
-    return;
-  }
+// Inițializează aplicația Express
+const app = express();
+const httpServer = http.createServer(app);
 
-  try {
-    // Endpoint de health check
-    if (req.url === '/health' || req.url === '/api/health') {
-      return res.status(200).json({
-        status: 'healthy',
-        timestamp: new Date().toISOString(),
-        version: '1.0.0',
-        environment: process.env.NODE_ENV || 'development',
-        message: 'API Monitorul Oficial funcționează!',
-        method: req.method,
-        url: req.url
-      });
-    }
+// Inițializează serverul Apollo cu schema și resolver-ii
+const server = new ApolloServer({
+  typeDefs,
+  resolvers,
+  // Dezactivează uneltele de debug în producție pentru securitate
+  introspection: !config.isProduction, 
+  validationRules: [depthLimit(7)], // Aplică limita de complexitate a query-urilor
+});
 
-    // Endpoint principal
-    if (req.url === '/' || req.url === '/api') {
-      return res.status(200).json({
-        name: 'Monitorul Oficial API',
-        version: '1.0.0',
-        description: 'API GraphQL pentru Monitorul Oficial',
-        environment: process.env.NODE_ENV || 'development',
-        status: 'Serverless function active',
-        endpoints: {
-          health: '/health',
-          graphql: '/graphql'
-        },
-        method: req.method,
-        url: req.url
-      });
-    }
+// Funcție asincronă pentru a porni serverul
+const startServer = async () => {
+  await server.start();
 
-    // Endpoint GraphQL (placeholder)
-    if (req.url === '/graphql' || req.url === '/api/graphql') {
-      return res.status(200).json({
-        message: 'GraphQL endpoint - în construcție',
-        status: 'working',
-        method: req.method,
-        url: req.url
-      });
-    }
+  // Aplică middleware-urile de securitate și CORS
+  app.use(helmet());
+  app.use(cors());
 
-    // Default response
-    return res.status(404).json({
-      error: 'Endpoint not found',
-      availableEndpoints: ['/', '/health', '/graphql'],
-      method: req.method,
-      url: req.url
-    });
+  // Setează endpoint-ul GraphQL și aplică middleware-ul Apollo
+  // Aici se întâmplă magia: autentificare, rate-limiting și execuția resolver-ilor
+  app.use(
+    '/', // Va rula pe calea definită în vercel.json (ex: /graphql)
+    express.json(),
+    expressMiddleware(server, {
+      context: async ({ req }) => {
+        // 1. Autentificare via Supabase
+        const authHeader = req.headers.authorization || '';
+        const token = authHeader.replace('Bearer ', '');
+        let user = null;
 
-  } catch (error) {
-    console.error('❌ Eroare în handler serverless:', error);
-    res.status(500).json({
-      error: 'Eroare internă a serverului',
-      message: process.env.NODE_ENV === 'development' ? error.message : 'O eroare neașteptată a apărut',
-      timestamp: new Date().toISOString()
-    });
-  }
-}
+        if (token) {
+          const { data, error } = await supabase.auth.getUser(token);
+          if (!error && data.user) {
+            // Atașăm profilul la obiectul user pentru a ști tier-ul
+            const { data: profileData } = await supabase
+              .from('profiles')
+              .select('subscription_tier')
+              .eq('id', data.user.id)
+              .single();
+            user = { ...data.user, profile: profileData };
+          }
+        }
+        
+        // 2. Aplică Rate-Limiting DUPĂ ce știm cine e utilizatorul
+        await rateLimiter(user, supabase); // Pasăm clientul supabase ca dependență
+
+        // 3. Returnează contextul pentru a fi disponibil în resolveri
+        return { user, supabase };
+      },
+    })
+  );
+};
+
+// Pornește serverul
+startServer();
+
+// Exportă aplicația Express pentru ca Vercel să o poată folosi
+module.exports = app;
