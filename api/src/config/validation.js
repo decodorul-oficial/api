@@ -90,7 +90,7 @@ export const paginationSchema = z.object({
     .min(0, 'Offset-ul nu poate fi negativ')
     .optional()
     .default(0),
-  orderBy: z.enum(['created_at', 'publication_date', 'title'], {
+  orderBy: z.enum(['created_at', 'publication_date', 'title', 'id'], {
     errorMap: () => ({ message: 'Câmpul de sortare trebuie să fie: created_at, publication_date sau title' })
   }).optional()
     .default('created_at'),

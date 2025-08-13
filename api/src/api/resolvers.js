@@ -77,8 +77,17 @@ export function createResolvers(services) {
       // Query-uri pentru știri
       getStiri: async (parent, args, context) => {
         try {
+          // Normalizează câmpurile orderBy din format GraphQL către coloane DB
+          const normalizedArgs = {
+            ...args,
+            orderBy: args?.orderBy === 'publicationDate'
+              ? 'publication_date'
+              : args?.orderBy === 'createdAt'
+                ? 'created_at'
+                : args?.orderBy
+          };
           // Validează parametrii de paginare
-          const validatedArgs = validateGraphQLData(args, paginationSchema);
+          const validatedArgs = validateGraphQLData(normalizedArgs, paginationSchema);
           return await stiriService.getStiri(validatedArgs);
         } catch (error) {
           throw error;
