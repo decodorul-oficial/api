@@ -120,7 +120,7 @@ async function initializeServer() {
     const stiriService = new StiriService(stiriRepository);
 
     // Creează resolver-ii
-    const resolvers = createResolvers(userService, stiriService);
+    const resolvers = createResolvers({ userService, stiriService, userRepository });
 
     // Configurează serverul Apollo
     server = new ApolloServer({
