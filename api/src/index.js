@@ -46,6 +46,7 @@ function calculateSelectionComplexity(selections) {
 import { ApolloServer } from '@apollo/server';
 import { expressMiddleware } from '@apollo/server/express4';
 import { ApolloServerPluginDrainHttpServer } from '@apollo/server/plugin/drainHttpServer';
+import { ApolloServerPluginLandingPageLocalDefault, ApolloServerPluginLandingPageProductionDefault } from '@apollo/server/plugin/landingPage/default';
 import { GraphQLError } from 'graphql';
 import express from 'express';
 import cors from 'cors';
@@ -103,7 +104,25 @@ async function initializeServer() {
     httpServer = http.createServer(app);
 
     // Configurează middleware-urile de securitate
-    app.use(helmet(securityConfig.helmet));
+    const enableGraphQLUI = process.env.ENABLE_GRAPHQL_UI === 'true' || process.env.NODE_ENV === 'development';
+    const helmetOptions = { ...securityConfig.helmet };
+    if (enableGraphQLUI) {
+      // Relaxează CSP doar pentru UI-ul Apollo Sandbox
+      const csp = helmetOptions.contentSecurityPolicy || { directives: {} };
+      csp.directives = csp.directives || {};
+      const existingFrameSrc = Array.isArray(csp.directives.frameSrc)
+        ? csp.directives.frameSrc.filter((v) => v !== "'none'")
+        : ["'self'"];
+      csp.directives.frameSrc = [...new Set([...existingFrameSrc, 'https://sandbox.embed.apollographql.com'])];
+      csp.directives.connectSrc = [...new Set([...(csp.directives.connectSrc || ["'self'"]), 'https://sandbox.embed.apollographql.com', 'https://embeddable-sandbox.cdn.apollographql.com', 'https://apollo-server-landing-page.cdn.apollographql.com'])];
+      csp.directives.scriptSrc = [...new Set([...(csp.directives.scriptSrc || ["'self'"]), 'https://embeddable-sandbox.cdn.apollographql.com', "'unsafe-inline'"])]
+      csp.directives.styleSrc = [...new Set([...(csp.directives.styleSrc || ["'self'", "'unsafe-inline'"]), "'unsafe-inline'", 'https://fonts.googleapis.com'])];
+      csp.directives.fontSrc = [...new Set([...(csp.directives.fontSrc || ["'self'"]), 'https://fonts.gstatic.com'])];
+      csp.directives.defaultSrc = [...new Set([...(csp.directives.defaultSrc || ["'self'"]), 'https://apollo-server-landing-page.cdn.apollographql.com'])];
+      csp.directives.manifestSrc = [...new Set([...(csp.directives.manifestSrc || ["'self'"]), 'https://apollo-server-landing-page.cdn.apollographql.com'])];
+      helmetOptions.contentSecurityPolicy = csp;
+    }
+    app.use(helmet(helmetOptions));
 
     // Configurează CORS
     app.use(cors(securityConfig.cors));
@@ -159,7 +178,13 @@ async function initializeServer() {
               throw err;
             }
           }
-        }
+        },
+        // Activează landing page doar când UI-ul este permis
+        ...(enableGraphQLUI
+          ? [process.env.NODE_ENV === 'production'
+              ? ApolloServerPluginLandingPageProductionDefault({ embed: true })
+              : ApolloServerPluginLandingPageLocalDefault({ embed: true })]
+          : [])
       ],
       introspection: apolloConfig.introspection,
       formatError: (error) => {

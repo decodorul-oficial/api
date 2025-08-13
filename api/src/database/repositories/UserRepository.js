@@ -64,10 +64,10 @@ export class UserRepository {
     try {
       const { data, error } = await this.supabase
         .from(this.profilesTable)
-        .insert([{
+        .upsert({
           id: userId,
           subscription_tier: subscriptionTier
-        }])
+        }, { onConflict: 'id' })
         .select()
         .single();
 

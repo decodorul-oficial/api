@@ -46,35 +46,63 @@ export class UserService {
       // Validare input
       const validatedData = signUpSchema.parse({ email, password });
 
-      // Înregistrare utilizator în Supabase Auth
-      const { data: authData, error: authError } = await this.supabase.auth.signUp({
+      // Creează utilizatorul folosind Admin API (service_role)
+      const { data: createdUser, error: createError } = await this.supabase.auth.admin.createUser({
         email: validatedData.email,
-        password: validatedData.password
+        password: validatedData.password,
+        email_confirm: true
       });
 
-      if (authError) {
-        throw new GraphQLError(`Eroare la înregistrare: ${authError.message}`, {
+      if (createError) {
+        throw new GraphQLError(`Eroare la înregistrare: ${createError.message}`, {
           extensions: { code: 'AUTH_ERROR' }
         });
       }
 
-      if (!authData.user) {
+      if (!createdUser?.user) {
         throw new GraphQLError('Nu s-a putut crea utilizatorul', {
           extensions: { code: 'AUTH_ERROR' }
         });
       }
 
-      // Creare profil pentru utilizatorul nou
-      const profile = await this.userRepository.createProfile(authData.user.id);
+      // În unele proiecte trigger-ul DB creează profilul automat.
+      // Pentru robustețe, nu eșuăm dacă profilul nu există încă; folosim fallback 'free'.
+      let profile = null;
+      try {
+        profile = await this.userRepository.getProfileById(createdUser.user.id);
+      } catch (_) {
+        // Ignorăm erorile de citire profil aici
+      }
+
+      // Generează sesiune după creare (deoarece Admin API nu returnează session)
+      const { data: signInData, error: signInError } = await this.supabase.auth.signInWithPassword({
+        email: validatedData.email,
+        password: validatedData.password
+      });
+
+      if (signInError) {
+        // Dacă autentificarea eșuează (politici proiect), întoarcem user fără token
+        return {
+          token: '',
+          user: {
+            id: createdUser.user.id,
+            email: createdUser.user.email,
+            profile: {
+              id: profile?.id || createdUser.user.id,
+              subscriptionTier: profile?.subscription_tier || 'free'
+            }
+          }
+        };
+      }
 
       return {
-        token: authData.session?.access_token || '',
+        token: signInData.session?.access_token || '',
         user: {
-          id: authData.user.id,
-          email: authData.user.email,
+          id: createdUser.user.id,
+          email: createdUser.user.email,
           profile: {
-            id: profile.id,
-            subscriptionTier: profile.subscription_tier
+            id: profile?.id || createdUser.user.id,
+            subscriptionTier: profile?.subscription_tier || 'free'
           }
         }
       };
