@@ -65,4 +65,4 @@ nodemon.json
 examples/
 
 # Fișiere de configurare pentru Vercel (pentru a evita conflictele)
-vercel.json
+# vercel.json - NU exclude acest fișier!
