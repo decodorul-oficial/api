@@ -57,18 +57,15 @@ export function createRateLimiterMiddleware(userRepository) {
       // Verifică dacă limita a fost depășită
       if (requestCount >= requestLimit) {
         const tierConfig = getSubscriptionTierConfig(subscriptionTier);
-        throw new GraphQLError(
-          `Ați depășit limita de ${requestLimit} de cereri pe zi pentru planul '${tierConfig.name}'. ` +
-          'Puteți face upgrade la un plan superior pentru mai multe cereri.',
-          {
-            extensions: { 
-              code: 'RATE_LIMIT_EXCEEDED',
-              limit: requestLimit,
-              current: requestCount,
-              tier: subscriptionTier
-            }
+        throw Object.assign(new GraphQLError('RATE_LIMIT_EXCEEDED'), {
+          extensions: {
+            code: 'RATE_LIMIT_EXCEEDED',
+            message: `Ați depășit limita de ${requestLimit} de cereri pe zi pentru planul '${tierConfig.name}'. Puteți face upgrade la un plan superior pentru mai multe cereri.`,
+            limit: requestLimit,
+            current: requestCount,
+            tier: subscriptionTier
           }
-        );
+        });
       }
 
       // Loghează cererea asincron (fără await pentru a nu adăuga latență)
@@ -115,17 +112,15 @@ export async function checkRateLimit(context, userRepository) {
 
   if (requestCount >= requestLimit) {
     const tierConfig = getSubscriptionTierConfig(subscriptionTier);
-    throw new GraphQLError(
-      `Ați depășit limita de ${requestLimit} de cereri pe zi pentru planul '${tierConfig.name}'`,
-      {
-        extensions: { 
-          code: 'RATE_LIMIT_EXCEEDED',
-          limit: requestLimit,
-          current: requestCount,
-          tier: subscriptionTier
-        }
+    throw Object.assign(new GraphQLError('RATE_LIMIT_EXCEEDED'), {
+      extensions: {
+        code: 'RATE_LIMIT_EXCEEDED',
+        message: `Ați depășit limita de ${requestLimit} de cereri pe zi pentru planul '${tierConfig.name}'`,
+        limit: requestLimit,
+        current: requestCount,
+        tier: subscriptionTier
       }
-    );
+    });
   }
 }
 

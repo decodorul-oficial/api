@@ -68,7 +68,7 @@ export class UserService {
       const profile = await this.userRepository.createProfile(authData.user.id);
 
       return {
-        token: authData.session?.access_token,
+        token: authData.session?.access_token || '',
         user: {
           id: authData.user.id,
           email: authData.user.email,

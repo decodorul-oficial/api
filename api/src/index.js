@@ -112,11 +112,12 @@ async function initializeServer() {
     app.use(express.json({ limit: '10mb' }));
 
     // Inițializează repository-urile
-    const stiriRepository = new StiriRepository(supabaseClient.getServiceClient());
-    const userRepository = new UserRepository(supabaseClient.getServiceClient());
+    const serviceClient = supabaseClient.getServiceClient();
+    const stiriRepository = new StiriRepository(serviceClient);
+    const userRepository = new UserRepository(serviceClient);
 
-    // Inițializează serviciile
-    const userService = new UserService(userRepository);
+    // Inițializează serviciile (injectăm explicit clientul Supabase și repository-urile)
+    const userService = new UserService(serviceClient, userRepository);
     const stiriService = new StiriService(stiriRepository);
 
     // Creează resolver-ii
@@ -147,6 +148,16 @@ async function initializeServer() {
                 );
               }
             }
+          },
+          // Integrează rate limiting pe întreg request-ul după rezolvarea operației
+          // pentru a avea contextul (utilizatorul) disponibil
+          didResolveOperation: async (requestContext) => {
+            try {
+              const rateLimiter = createRateLimiterMiddleware(userRepository);
+              await rateLimiter(requestContext);
+            } catch (err) {
+              throw err;
+            }
           }
         }
       ],
@@ -176,8 +187,12 @@ async function initializeServer() {
     // Configurează middleware-ul de autentificare
     const authMiddleware = createAuthMiddleware(userService);
 
+    // Aplică middleware-urile de securitate adiționale
+    const securityMiddlewares = createSecurityMiddleware();
+
     // Aplică middleware-urile la Express
     app.use('/graphql', 
+      ...securityMiddlewares,
       authMiddleware,
       expressMiddleware(server, {
         context: async ({ req }) => {

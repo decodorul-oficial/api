@@ -30,7 +30,8 @@ export function inputValidationMiddleware(req, res, next) {
     sanitizeHeaders(req);
     
     // Verifică Content-Type pentru request-uri GraphQL
-    if (req.path === '/graphql' && req.method === 'POST') {
+    const reqPath = req.path || req.url || '';
+    if ((reqPath.startsWith('/graphql')) && req.method === 'POST') {
       const contentType = req.headers['content-type'];
       if (!contentType || !contentType.includes('application/json')) {
         return res.status(400).json({
@@ -181,7 +182,8 @@ export function securityLoggingMiddleware(req, res, next) {
  * @param {Function} next - Next function
  */
 export function graphqlValidationMiddleware(req, res, next) {
-  if (req.path !== '/graphql' || req.method !== 'POST') {
+  const reqPath = req.path || req.url || '';
+  if (!reqPath.startsWith('/graphql') || req.method !== 'POST') {
     return next();
   }
   
@@ -282,7 +284,7 @@ export function validateGraphQLData(data, schema) {
   try {
     return schema.parse(data);
   } catch (error) {
-    throw new GraphQLError('Date invalide', {
+    throw new GraphQLError('Eroare de validare', {
       extensions: {
         code: 'VALIDATION_ERROR',
         details: error.errors
