@@ -1,10 +1,10 @@
 /**
  * Vercel Serverless Function Entry Point
- * Versiune simplificată pentru debugging
+ * Versiune CommonJS pentru compatibilitate Vercel
  */
 
-import express from 'express';
-import cors from 'cors';
+const express = require('express');
+const cors = require('cors');
 
 // Inițializează Express
 const app = express();
@@ -63,6 +63,6 @@ app.use((error, req, res, next) => {
 });
 
 // Funcția principală pentru serverless (Vercel)
-export default function handler(req, res) {
+module.exports = function handler(req, res) {
   return app(req, res);
-}
+};
