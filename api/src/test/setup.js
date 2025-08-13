@@ -3,6 +3,8 @@
  * Configurări globale pentru testarea API-ului GraphQL
  */
 
+import { jest } from '@jest/globals';
+
 // Mock pentru console.log pentru a reduce output-ul în teste
 const originalConsoleLog = console.log;
 const originalConsoleError = console.error;

@@ -3,8 +3,8 @@
  * Demonstrează cum funcționează sistemul în practică
  */
 
-import { createRateLimiterMiddleware, getRateLimitInfo, debugRateLimit } from '../src/middleware/rateLimiter.js';
-import { getRequestLimit, hasUnlimitedRequests } from '../src/config/subscriptions.js';
+import { createRateLimiterMiddleware, getRateLimitInfo, debugRateLimit } from '../api/src/middleware/rateLimiter.js';
+import { getRequestLimit, hasUnlimitedRequests } from '../api/src/config/subscriptions.js';
 
 // Mock pentru repository-ul de utilizatori
 const mockUserRepository = {

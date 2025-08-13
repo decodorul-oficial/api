@@ -67,10 +67,10 @@ export const updateStireInputSchema = z.object({
   publicationDate: publicationDateSchema.optional(),
   content: contentSchema.optional()
 }).strict('Input-ul conține câmpuri neașteptate')
-.refine(
-  (data) => Object.keys(data).length > 0,
-  'Cel puțin un câmp trebuie să fie furnizat pentru actualizare'
-);
+  .refine(
+    (data) => Object.keys(data).length > 0,
+    'Cel puțin un câmp trebuie să fie furnizat pentru actualizare'
+  );
 
 export const updateProfileInputSchema = z.object({
   subscriptionTier: z.enum(['free', 'pro', 'enterprise'], {

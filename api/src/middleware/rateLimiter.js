@@ -59,7 +59,7 @@ export function createRateLimiterMiddleware(userRepository) {
         const tierConfig = getSubscriptionTierConfig(subscriptionTier);
         throw new GraphQLError(
           `Ați depășit limita de ${requestLimit} de cereri pe zi pentru planul '${tierConfig.name}'. ` +
-          `Puteți face upgrade la un plan superior pentru mai multe cereri.`,
+          'Puteți face upgrade la un plan superior pentru mai multe cereri.',
           {
             extensions: { 
               code: 'RATE_LIMIT_EXCEEDED',

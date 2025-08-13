@@ -22,24 +22,19 @@ export default {
   // Transformări pentru ES modules
   transform: {},
   
-  // Extensii pentru module
-  extensionsToTreatAsEsm: ['.js'],
-  
-  // Globals pentru testare
-  globals: {
-    'ts-jest': {
-      useESM: true
-    }
+  // Module name mapper pentru ES modules
+  moduleNameMapper: {
+    '^(\\.{1,2}/.*)\\.js$': '$1'
   },
   
   // Setup files
-  setupFilesAfterEnv: ['<rootDir>/src/test/setup.js'],
+  setupFilesAfterEnv: ['<rootDir>/api/src/test/setup.js'],
   
   // Coverage
   collectCoverageFrom: [
-    'src/**/*.js',
-    '!src/**/*.test.js',
-    '!src/test/**/*.js'
+    'api/src/**/*.js',
+    '!api/src/**/*.test.js',
+    '!api/src/test/**/*.js'
   ],
   
   // Coverage thresholds

@@ -1,18 +1,18 @@
 // Importurile necesare din biblioteci
-const { ApolloServer } = require('@apollo/server');
-const { expressMiddleware } = require('@apollo/server/express4');
-const express = require('express');
-const http = require('http');
-const cors = require('cors');
-const helmet = require('helmet');
-const depthLimit = require('graphql-depth-limit');
+import { ApolloServer } from '@apollo/server';
+import { expressMiddleware } from '@apollo/server/express4';
+import express from 'express';
+import http from 'http';
+import cors from 'cors';
+import helmet from 'helmet';
+import depthLimit from 'graphql-depth-limit';
 
 // Importurile modulelor tale locale
-const config = require('../src/config');
-const typeDefs = require('../src/api/schema');
-const resolvers = require('../src/api/resolvers');
-const supabase = require('../src/services/supabaseClient'); // Clientul Supabase
-const { rateLimiter } = require('../src/middleware/rateLimiter'); // Middleware-ul de rate-limiting
+import config from './src/config/index.js';
+import typeDefs from './src/api/schema.js';
+import resolvers from './src/api/resolvers.js';
+import supabase from './src/database/supabaseClient.js'; // Clientul Supabase
+import { createRateLimiterMiddleware } from './src/middleware/rateLimiter.js'; // Middleware-ul de rate-limiting
 
 // Inițializează aplicația Express
 const app = express();
@@ -61,7 +61,7 @@ const startServer = async () => {
         }
         
         // 2. Aplică Rate-Limiting DUPĂ ce știm cine e utilizatorul
-        await rateLimiter(user, supabase); // Pasăm clientul supabase ca dependență
+        // TODO: Implementează rate limiting aici cu createRateLimiterMiddleware
 
         // 3. Returnează contextul pentru a fi disponibil în resolveri
         return { user, supabase };
@@ -74,4 +74,4 @@ const startServer = async () => {
 startServer();
 
 // Exportă aplicația Express pentru ca Vercel să o poată folosi
-module.exports = app;
+export default app;
