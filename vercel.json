@@ -1,7 +1,6 @@
 {
   "version": 2,
   "name": "monitorul-oficial-api",
-  "description": "API GraphQL pentru Monitorul Oficial cu Supabase și Apollo Server",
   "functions": {
     "api/index.js": {
       "maxDuration": 30
