@@ -12,7 +12,7 @@
   "rewrites": [
     {
       "source": "/graphql",
-      "destination": "/api/index.js"
+      "destination": "/api/src/index.js"
     }
   ]
 }
