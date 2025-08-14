@@ -51,7 +51,8 @@ const typeResolvers = {
     publicationDate: (parent) => parent.publicationDate,
     content: (parent) => parent.content,
     createdAt: (parent) => parent.createdAt,
-    updatedAt: (parent) => parent.updatedAt
+    updatedAt: (parent) => parent.updatedAt,
+    filename: (parent) => parent.filename
   },
 
   RequestLog: {

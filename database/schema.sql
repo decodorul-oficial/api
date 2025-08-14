@@ -15,7 +15,8 @@ CREATE TABLE IF NOT EXISTS stiri (
     created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL,
     title TEXT NOT NULL,
     publication_date DATE NOT NULL,
-    content JSONB NOT NULL
+    content JSONB NOT NULL,
+    filename TEXT
 );
 
 -- Tabela pentru profilele utilizatorilor

@@ -12,6 +12,7 @@ export const typeDefs = `#graphql
     content: JSON!
     createdAt: String!
     updatedAt: String
+    filename: String
   }
 
   type Profile {

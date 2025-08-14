@@ -295,7 +295,8 @@ export class StiriService {
       publicationDate: stire.publication_date,
       content: stire.content,
       createdAt: stire.created_at,
-      updatedAt: stire.updated_at
+      updatedAt: stire.updated_at,
+      filename: stire.filename
     };
   }
 }
