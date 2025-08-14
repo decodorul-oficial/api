@@ -16,6 +16,9 @@ export class StiriRepository {
    */
   constructor(supabaseClient) {
     this.supabase = supabaseClient;
+    this.publicSchema = typeof supabaseClient.schema === 'function'
+      ? supabaseClient.schema('public')
+      : supabaseClient;
     this.tableName = 'stiri';
   }
 
@@ -30,7 +33,7 @@ export class StiriRepository {
    */
   async getStiri({ limit = 10, offset = 0, orderBy = 'publication_date', orderDirection = 'desc' } = {}) {
     try {
-      const { data, error, count } = await this.supabase
+      const { data, error, count } = await this.publicSchema
         .from(this.tableName)
         .select('*', { count: 'exact' })
         .order(orderBy, { ascending: orderDirection === 'asc' })
@@ -65,51 +68,21 @@ export class StiriRepository {
    */
   async searchStiri({ query, limit = 10, offset = 0, orderBy = 'publication_date', orderDirection = 'desc' } = {}) {
     try {
-      // Construim pattern ilike
-      const pattern = `%${query}%`;
-
-      // Caută în title (ilike)
-      let q = this.publicSchema
-        .from(this.tableName)
-        .select('*', { count: 'exact' })
-        .or(
-          [
-            `title.ilike.${pattern}`,
-            // Caută în content: convertim JSONB la text; PostgREST permite filters pe col text
-            // folosim un RPC pentru strip HTML/JSON la nevoie; fallback: ilike pe to_json(content)
-            // Notă: PostgREST nu suportă direct ilike pe jsonb; soluție: definim view indexat sau RPC.
-            // Aici folosim un view presupus 'stiri_search' dacă există; altfel, fallback
-          ].join(',')
-        )
-        .order(orderBy, { ascending: orderDirection === 'asc' })
-        .range(offset, offset + limit - 1);
-
-      let { data, error, count } = await q;
-
-      // Dacă PostgREST nu poate aplica ilike pe jsonb, încercăm un RPC (dacă este definit în DB)
-      if (error && (error.message || '').toLowerCase().includes('jsonb')) {
-        const rpc = await this.publicSchema.rpc('stiri_search', {
-          p_query: query,
-          p_limit: limit,
-          p_offset: offset,
-          p_order_by: orderBy,
-          p_order_dir: orderDirection
-        });
-        if (rpc.error) {
-          throw new GraphQLError(`Eroare la căutarea știrilor: ${rpc.error.message}`, {
-            extensions: { code: 'DATABASE_ERROR' }
-          });
-        }
-        data = rpc.data?.items || [];
-        count = rpc.data?.total_count || rpc.data?.items?.length || 0;
-        error = null;
-      }
-
-      if (error) {
-        throw new GraphQLError(`Eroare la căutarea știrilor: ${error.message}`, {
+      // Folosește RPC optimizat în DB (folosește coloanele generate indexate)
+      const rpc = await this.publicSchema.rpc('stiri_search', {
+        p_query: query,
+        p_limit: limit,
+        p_offset: offset,
+        p_order_by: orderBy,
+        p_order_dir: orderDirection
+      });
+      if (rpc.error) {
+        throw new GraphQLError(`Eroare la căutarea știrilor: ${rpc.error.message}`, {
           extensions: { code: 'DATABASE_ERROR' }
         });
       }
+      const data = rpc.data?.items || [];
+      const count = rpc.data?.total_count || rpc.data?.items?.length || 0;
 
       return {
         stiri: data || [],
@@ -134,7 +107,7 @@ export class StiriRepository {
    */
   async getStireById(id) {
     try {
-      const { data, error } = await this.supabase
+      const { data, error } = await this.publicSchema
         .from(this.tableName)
         .select('*')
         .eq('id', id)
@@ -167,7 +140,7 @@ export class StiriRepository {
    */
   async createStire(stireData) {
     try {
-      const { data, error } = await this.supabase
+      const { data, error } = await this.publicSchema
         .from(this.tableName)
         .insert([stireData])
         .select()
@@ -198,7 +171,7 @@ export class StiriRepository {
    */
   async updateStire(id, updateData) {
     try {
-      const { data, error } = await this.supabase
+      const { data, error } = await this.publicSchema
         .from(this.tableName)
         .update(updateData)
         .eq('id', id)
@@ -229,7 +202,7 @@ export class StiriRepository {
    */
   async deleteStire(id) {
     try {
-      const { error } = await this.supabase
+      const { error } = await this.publicSchema
         .from(this.tableName)
         .delete()
         .eq('id', id);

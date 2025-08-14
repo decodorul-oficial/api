@@ -107,13 +107,16 @@ export function createResolvers(services) {
       // Căutare în știri (fuzzy/full-text)
       searchStiri: async (parent, args, context) => {
         try {
+          const { limit, offset, orderBy, orderDirection } = args || {};
           const normalizedArgs = {
-            ...args,
-            orderBy: args?.orderBy === 'publicationDate'
+            limit,
+            offset,
+            orderBy: orderBy === 'publicationDate'
               ? 'publication_date'
-              : args?.orderBy === 'createdAt'
+              : orderBy === 'createdAt'
                 ? 'created_at'
-                : args?.orderBy
+                : orderBy,
+            orderDirection
           };
           const validatedArgs = validateGraphQLData(normalizedArgs, paginationSchema);
           return await stiriService.searchStiri({
