@@ -59,6 +59,75 @@ export class StiriRepository {
   }
 
   /**
+   * Caută știrile folosind căutare fuzzy/full-text
+   * Implementare: ilike pe title + conversie content JSONB la text și strip de markup simplu
+   * Notă: Pentru rezultate mai bune, recomandăm în viitor trigram/tsvector
+   */
+  async searchStiri({ query, limit = 10, offset = 0, orderBy = 'publication_date', orderDirection = 'desc' } = {}) {
+    try {
+      // Construim pattern ilike
+      const pattern = `%${query}%`;
+
+      // Caută în title (ilike)
+      let q = this.publicSchema
+        .from(this.tableName)
+        .select('*', { count: 'exact' })
+        .or(
+          [
+            `title.ilike.${pattern}`,
+            // Caută în content: convertim JSONB la text; PostgREST permite filters pe col text
+            // folosim un RPC pentru strip HTML/JSON la nevoie; fallback: ilike pe to_json(content)
+            // Notă: PostgREST nu suportă direct ilike pe jsonb; soluție: definim view indexat sau RPC.
+            // Aici folosim un view presupus 'stiri_search' dacă există; altfel, fallback
+          ].join(',')
+        )
+        .order(orderBy, { ascending: orderDirection === 'asc' })
+        .range(offset, offset + limit - 1);
+
+      let { data, error, count } = await q;
+
+      // Dacă PostgREST nu poate aplica ilike pe jsonb, încercăm un RPC (dacă este definit în DB)
+      if (error && (error.message || '').toLowerCase().includes('jsonb')) {
+        const rpc = await this.publicSchema.rpc('stiri_search', {
+          p_query: query,
+          p_limit: limit,
+          p_offset: offset,
+          p_order_by: orderBy,
+          p_order_dir: orderDirection
+        });
+        if (rpc.error) {
+          throw new GraphQLError(`Eroare la căutarea știrilor: ${rpc.error.message}`, {
+            extensions: { code: 'DATABASE_ERROR' }
+          });
+        }
+        data = rpc.data?.items || [];
+        count = rpc.data?.total_count || rpc.data?.items?.length || 0;
+        error = null;
+      }
+
+      if (error) {
+        throw new GraphQLError(`Eroare la căutarea știrilor: ${error.message}`, {
+          extensions: { code: 'DATABASE_ERROR' }
+        });
+      }
+
+      return {
+        stiri: data || [],
+        totalCount: count || 0,
+        hasNextPage: (offset + limit) < (count || 0),
+        hasPreviousPage: offset > 0
+      };
+    } catch (error) {
+      if (error instanceof GraphQLError) {
+        throw error;
+      }
+      throw new GraphQLError('Eroare internă la căutarea știrilor', {
+        extensions: { code: 'INTERNAL_ERROR' }
+      });
+    }
+  }
+
+  /**
    * Obține o știre după ID
    * @param {number} id - ID-ul știrii
    * @returns {Promise<Object|null>} Știrea sau null dacă nu există

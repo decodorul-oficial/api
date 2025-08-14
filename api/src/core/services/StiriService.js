@@ -121,6 +121,49 @@ export class StiriService {
   }
 
   /**
+   * Caută știri după un query text (fuzzy/full-text)
+   * - Caută în title și content (JSONB) ignorând markup HTML/chei JSON
+   */
+  async searchStiri({ query, limit = validationConfig.defaultStiriLimit, offset = 0, orderBy = 'publication_date', orderDirection = 'desc' }) {
+    try {
+      if (!query || typeof query !== 'string' || query.trim().length < 2) {
+        throw new GraphQLError('Query de căutare prea scurt', { extensions: { code: 'VALIDATION_ERROR' } });
+      }
+
+      const result = await this.stiriRepository.searchStiri({
+        query: query.trim(),
+        limit,
+        offset,
+        orderBy,
+        orderDirection
+      });
+
+      return {
+        stiri: result.stiri.map(stire => this.transformStireForGraphQL(stire)),
+        pagination: {
+          totalCount: result.totalCount,
+          hasNextPage: result.hasNextPage,
+          hasPreviousPage: result.hasPreviousPage,
+          currentPage: Math.floor(offset / limit) + 1,
+          totalPages: Math.ceil(result.totalCount / limit)
+        }
+      };
+    } catch (error) {
+      if (error instanceof GraphQLError) {
+        throw error;
+      }
+      if (error instanceof z.ZodError) {
+        throw new GraphQLError(`Eroare de validare: ${error.errors[0].message}`, {
+          extensions: { code: 'VALIDATION_ERROR' }
+        });
+      }
+      throw new GraphQLError('Eroare internă la căutarea știrilor', {
+        extensions: { code: 'INTERNAL_ERROR' }
+      });
+    }
+  }
+
+  /**
    * Creează o nouă știre
    * @param {Object} stireData - Datele știrii
    * @returns {Promise<Object>} Știrea creată

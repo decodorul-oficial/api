@@ -104,6 +104,27 @@ export function createResolvers(services) {
         }
       },
 
+      // Căutare în știri (fuzzy/full-text)
+      searchStiri: async (parent, args, context) => {
+        try {
+          const normalizedArgs = {
+            ...args,
+            orderBy: args?.orderBy === 'publicationDate'
+              ? 'publication_date'
+              : args?.orderBy === 'createdAt'
+                ? 'created_at'
+                : args?.orderBy
+          };
+          const validatedArgs = validateGraphQLData(normalizedArgs, paginationSchema);
+          return await stiriService.searchStiri({
+            query: args.query,
+            ...validatedArgs
+          });
+        } catch (error) {
+          throw error;
+        }
+      },
+
       // Query-uri pentru utilizatori
       me: async (parent, args, context) => {
         try {

@@ -105,6 +105,14 @@ export const typeDefs = `#graphql
     ): StiriResponse!
     
     getStireById(id: ID!): Stire
+    # Căutare full-text/fuzzy în știri
+    searchStiri(
+      query: String!
+      limit: Int
+      offset: Int
+      orderBy: String
+      orderDirection: String
+    ): StiriResponse!
 
     # Query-uri pentru utilizatori
     me: User
