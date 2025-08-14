@@ -75,7 +75,7 @@ export const securityConfig = {
  * Configurația pentru validare
  */
 export const validationConfig = {
-  maxStiriLimit: 50,
+  maxStiriLimit: 100,
   defaultStiriLimit: 10,
   maxTitleLength: 500,
   maxContentLength: 10000,

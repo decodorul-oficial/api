@@ -12,7 +12,7 @@ import { validationConfig } from '../../config/index.js';
  * Scheme de validare pentru input-uri
  */
 const getStiriSchema = z.object({
-  limit: z.number().min(1).max(validationConfig.maxStiriLimit).optional(),
+  limit: z.number().min(1, 'Limita trebuie să fie cel puțin 1').max(validationConfig.maxStiriLimit, `Limita nu poate depăși ${validationConfig.maxStiriLimit}`).optional(),
   offset: z.number().min(0).optional(),
   orderBy: z.enum(['id', 'title', 'publication_date', 'created_at']).optional(),
   orderDirection: z.enum(['asc', 'desc']).optional()

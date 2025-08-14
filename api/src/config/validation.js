@@ -82,7 +82,7 @@ export const paginationSchema = z.object({
   limit: z.number()
     .int('Limita trebuie să fie un număr întreg')
     .min(1, 'Limita trebuie să fie cel puțin 1')
-    .max(50, 'Limita nu poate depăși 50')
+    .max(100, 'Limita nu poate depăși 100')
     .optional()
     .default(10),
   offset: z.number()
@@ -91,9 +91,9 @@ export const paginationSchema = z.object({
     .optional()
     .default(0),
   orderBy: z.enum(['created_at', 'publication_date', 'title', 'id'], {
-    errorMap: () => ({ message: 'Câmpul de sortare trebuie să fie: created_at, publication_date sau title' })
+    errorMap: () => ({ message: 'Câmpul de sortare trebuie să fie: created_at, publication_date, title sau id' })
   }).optional()
-    .default('created_at'),
+    .default('publication_date'),
   orderDirection: z.enum(['asc', 'desc'], {
     errorMap: () => ({ message: 'Direcția de sortare trebuie să fie: asc sau desc' })
   }).optional()
