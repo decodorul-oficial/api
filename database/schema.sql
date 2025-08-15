@@ -110,7 +110,6 @@ CREATE OR REPLACE FUNCTION public.get_most_read_stiri(
   publication_date DATE,
   content JSONB,
   created_at TIMESTAMPTZ,
-  updated_at TIMESTAMPTZ,
   filename TEXT,
   view_count BIGINT
 )
@@ -119,13 +118,13 @@ AS $$
 BEGIN
   IF p_period IS NULL OR p_period = '' OR lower(p_period) = 'all' THEN
     RETURN QUERY
-    SELECT s.id, s.title, s.publication_date, s.content, s.created_at, s.updated_at, s.filename, COALESCE(s.view_count, 0) AS view_count
+    SELECT s.id, s.title, s.publication_date, s.content, s.created_at, s.filename, COALESCE(s.view_count, 0) AS view_count
     FROM public.stiri s
     ORDER BY COALESCE(s.view_count, 0) DESC, s.id DESC
     LIMIT p_limit;
   ELSIF lower(p_period) = '24h' THEN
     RETURN QUERY
-    SELECT s.id, s.title, s.publication_date, s.content, s.created_at, s.updated_at, s.filename,
+    SELECT s.id, s.title, s.publication_date, s.content, s.created_at, s.filename,
            COALESCE(COUNT(nv.id), 0) AS view_count
     FROM public.stiri s
     LEFT JOIN public.news_views nv ON nv.news_id = s.id AND nv.viewed_at >= NOW() - INTERVAL '24 hours'
@@ -134,7 +133,7 @@ BEGIN
     LIMIT p_limit;
   ELSIF lower(p_period) = '7d' THEN
     RETURN QUERY
-    SELECT s.id, s.title, s.publication_date, s.content, s.created_at, s.updated_at, s.filename,
+    SELECT s.id, s.title, s.publication_date, s.content, s.created_at, s.filename,
            COALESCE(COUNT(nv.id), 0) AS view_count
     FROM public.stiri s
     LEFT JOIN public.news_views nv ON nv.news_id = s.id AND nv.viewed_at >= NOW() - INTERVAL '7 days'
@@ -143,7 +142,7 @@ BEGIN
     LIMIT p_limit;
   ELSIF lower(p_period) = '30d' OR lower(p_period) = '30days' OR lower(p_period) = 'month' THEN
     RETURN QUERY
-    SELECT s.id, s.title, s.publication_date, s.content, s.created_at, s.updated_at, s.filename,
+    SELECT s.id, s.title, s.publication_date, s.content, s.created_at, s.filename,
            COALESCE(COUNT(nv.id), 0) AS view_count
     FROM public.stiri s
     LEFT JOIN public.news_views nv ON nv.news_id = s.id AND nv.viewed_at >= NOW() - INTERVAL '30 days'
@@ -152,7 +151,7 @@ BEGIN
     LIMIT p_limit;
   ELSE
     RETURN QUERY
-    SELECT s.id, s.title, s.publication_date, s.content, s.created_at, s.updated_at, s.filename, COALESCE(s.view_count, 0) AS view_count
+    SELECT s.id, s.title, s.publication_date, s.content, s.created_at, s.filename, COALESCE(s.view_count, 0) AS view_count
     FROM public.stiri s
     ORDER BY COALESCE(s.view_count, 0) DESC, s.id DESC
     LIMIT p_limit;
