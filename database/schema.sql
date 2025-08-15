@@ -16,7 +16,8 @@ CREATE TABLE IF NOT EXISTS stiri (
     title TEXT NOT NULL,
     publication_date DATE NOT NULL,
     content JSONB NOT NULL,
-    filename TEXT
+    filename TEXT,
+    view_count BIGINT DEFAULT 0 NOT NULL
 );
 
 -- Tabela pentru profilele utilizatorilor
@@ -41,6 +42,7 @@ CREATE TABLE IF NOT EXISTS usage_logs (
 -- Index pentru optimizarea interogărilor de știri
 CREATE INDEX IF NOT EXISTS idx_stiri_publication_date ON stiri(publication_date DESC);
 CREATE INDEX IF NOT EXISTS idx_stiri_created_at ON stiri(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_stiri_view_count ON stiri(view_count DESC);
 
 -- Index compozit pentru rate limiting - optimizare pentru interogările pe user_id și timestamp
 CREATE INDEX IF NOT EXISTS idx_usage_logs_user_timestamp ON usage_logs(user_id, request_timestamp DESC);
@@ -61,6 +63,104 @@ BEGIN
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Funcția pentru tracking vizualizări cu deduplicare pe 24h
+CREATE OR REPLACE FUNCTION public.track_news_view(
+  p_news_id BIGINT,
+  p_ip TEXT,
+  p_user_agent TEXT DEFAULT NULL,
+  p_session_id TEXT DEFAULT NULL
+) RETURNS BOOLEAN
+LANGUAGE plpgsql SECURITY DEFINER
+AS $$
+DECLARE
+  v_inserted BOOLEAN := FALSE;
+BEGIN
+  PERFORM 1
+  FROM public.news_views nv
+  WHERE nv.news_id = p_news_id
+    AND nv.ip_address = p_ip::inet
+    AND nv.viewed_at >= NOW() - INTERVAL '24 hours'
+  LIMIT 1;
+
+  IF NOT FOUND THEN
+    INSERT INTO public.news_views (news_id, ip_address, user_agent, session_id)
+    VALUES (p_news_id, p_ip::inet, p_user_agent, p_session_id);
+
+    UPDATE public.stiri
+    SET view_count = COALESCE(view_count, 0) + 1
+    WHERE id = p_news_id;
+
+    v_inserted := TRUE;
+  END IF;
+
+  RETURN v_inserted;
+END;
+$$;
+
+COMMENT ON FUNCTION public.track_news_view(BIGINT, TEXT, TEXT, TEXT) IS 'Înregistrează o vizualizare dacă nu există deja din același IP în ultimele 24h și incrementează view_count';
+
+-- Funcția pentru obținerea celor mai citite știri (agregat sau pe perioadă)
+CREATE OR REPLACE FUNCTION public.get_most_read_stiri(
+  p_period TEXT DEFAULT NULL,
+  p_limit INT DEFAULT 10
+) RETURNS TABLE(
+  id BIGINT,
+  title TEXT,
+  publication_date DATE,
+  content JSONB,
+  created_at TIMESTAMPTZ,
+  updated_at TIMESTAMPTZ,
+  filename TEXT,
+  view_count BIGINT
+)
+LANGUAGE plpgsql SECURITY DEFINER
+AS $$
+BEGIN
+  IF p_period IS NULL OR p_period = '' OR lower(p_period) = 'all' THEN
+    RETURN QUERY
+    SELECT s.id, s.title, s.publication_date, s.content, s.created_at, s.updated_at, s.filename, COALESCE(s.view_count, 0) AS view_count
+    FROM public.stiri s
+    ORDER BY COALESCE(s.view_count, 0) DESC, s.id DESC
+    LIMIT p_limit;
+  ELSIF lower(p_period) = '24h' THEN
+    RETURN QUERY
+    SELECT s.id, s.title, s.publication_date, s.content, s.created_at, s.updated_at, s.filename,
+           COALESCE(COUNT(nv.id), 0) AS view_count
+    FROM public.stiri s
+    LEFT JOIN public.news_views nv ON nv.news_id = s.id AND nv.viewed_at >= NOW() - INTERVAL '24 hours'
+    GROUP BY s.id
+    ORDER BY COALESCE(COUNT(nv.id), 0) DESC, s.id DESC
+    LIMIT p_limit;
+  ELSIF lower(p_period) = '7d' THEN
+    RETURN QUERY
+    SELECT s.id, s.title, s.publication_date, s.content, s.created_at, s.updated_at, s.filename,
+           COALESCE(COUNT(nv.id), 0) AS view_count
+    FROM public.stiri s
+    LEFT JOIN public.news_views nv ON nv.news_id = s.id AND nv.viewed_at >= NOW() - INTERVAL '7 days'
+    GROUP BY s.id
+    ORDER BY COALESCE(COUNT(nv.id), 0) DESC, s.id DESC
+    LIMIT p_limit;
+  ELSIF lower(p_period) = '30d' OR lower(p_period) = '30days' OR lower(p_period) = 'month' THEN
+    RETURN QUERY
+    SELECT s.id, s.title, s.publication_date, s.content, s.created_at, s.updated_at, s.filename,
+           COALESCE(COUNT(nv.id), 0) AS view_count
+    FROM public.stiri s
+    LEFT JOIN public.news_views nv ON nv.news_id = s.id AND nv.viewed_at >= NOW() - INTERVAL '30 days'
+    GROUP BY s.id
+    ORDER BY COALESCE(COUNT(nv.id), 0) DESC, s.id DESC
+    LIMIT p_limit;
+  ELSE
+    RETURN QUERY
+    SELECT s.id, s.title, s.publication_date, s.content, s.created_at, s.updated_at, s.filename, COALESCE(s.view_count, 0) AS view_count
+    FROM public.stiri s
+    ORDER BY COALESCE(s.view_count, 0) DESC, s.id DESC
+    LIMIT p_limit;
+  END IF;
+END;
+$$;
+
+COMMENT ON FUNCTION public.get_most_read_stiri(TEXT, INT) IS 'Returnează lista celor mai citite știri, agregând după perioada specificată';
 
 -- Trigger-ul pentru a popula automat tabela profiles
 DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
@@ -95,6 +195,23 @@ CREATE TRIGGER update_profiles_updated_at
 ALTER TABLE stiri ENABLE ROW LEVEL SECURITY;
 ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE usage_logs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.news_views ENABLE ROW LEVEL SECURITY;
+
+-- Tabela pentru vizualizări știri
+CREATE TABLE IF NOT EXISTS public.news_views (
+  id BIGSERIAL PRIMARY KEY,
+  news_id BIGINT NOT NULL REFERENCES public.stiri(id) ON DELETE CASCADE,
+  ip_address INET NOT NULL,
+  user_agent TEXT,
+  viewed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  session_id TEXT
+);
+
+-- Indexuri pentru news_views
+CREATE INDEX IF NOT EXISTS idx_news_views_news_id ON public.news_views(news_id);
+CREATE INDEX IF NOT EXISTS idx_news_views_ip_address ON public.news_views(ip_address);
+CREATE INDEX IF NOT EXISTS idx_news_views_viewed_at ON public.news_views(viewed_at DESC);
+CREATE INDEX IF NOT EXISTS idx_news_views_session_id ON public.news_views(session_id);
 
 -- =====================================================
 -- 6. POLITICI DE SECURITATE (RLS POLICIES)
@@ -142,6 +259,14 @@ CREATE POLICY "Block all operations on usage_logs" ON usage_logs
     USING (false)
     WITH CHECK (false);
 
+-- Politici pentru tabela news_views
+DROP POLICY IF EXISTS "Block all operations on news_views" ON public.news_views;
+CREATE POLICY "Block all operations on news_views" ON public.news_views
+    FOR ALL
+    TO authenticated
+    USING (false)
+    WITH CHECK (false);
+
 -- =====================================================
 -- 7. FUNCȚII UTILITARE PENTRU API
 -- =====================================================
@@ -180,6 +305,10 @@ COMMENT ON TABLE profiles IS 'Profilele utilizatorilor cu informații despre abo
 COMMENT ON TABLE usage_logs IS 'Log pentru rate limiting - accesibil doar prin service_role';
 COMMENT ON FUNCTION get_user_request_count_24h(UUID) IS 'Returnează numărul de cereri ale unui utilizator în ultimele 24 de ore';
 COMMENT ON FUNCTION get_user_subscription_tier(UUID) IS 'Returnează tier-ul de abonament al unui utilizator';
+
+-- Comentarii pentru news_views și view_count
+COMMENT ON TABLE public.news_views IS 'Vizualizări individuale ale știrilor pentru analytics și deduplicare';
+COMMENT ON COLUMN public.stiri.view_count IS 'Număr total de vizualizări agregate';
 
 -- =====================================================
 -- 9. VERIFICĂRI DE SECURITATE

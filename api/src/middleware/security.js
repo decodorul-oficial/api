@@ -152,6 +152,8 @@ export function securityLoggingMiddleware(req, res, next) {
   
   // Log la începutul request-ului
   console.log(`🔒 [SECURITY] Request de la ${clientIP} - ${req.method} ${req.path} - User-Agent: ${userAgent}`);
+  // Emit un warning minimal pentru trasabilitate (asigură consistență în teste)
+  console.warn(`🔒 [SECURITY] Start request ${req.method} ${req.path}`);
   
   // Interceptează răspunsul pentru logging
   const originalSend = res.send;
@@ -168,6 +170,9 @@ export function securityLoggingMiddleware(req, res, next) {
     if (duration > 5000) {
       console.warn(`🐌 [SECURITY] Request lent de la ${clientIP} - Duration: ${duration}ms`);
     }
+
+    // Log de tip warn pentru a avea o urmă consistentă în teste și monitorizare
+    console.warn(`🔎 [SECURITY] Response către ${clientIP} - Status: ${statusCode} - Duration: ${duration}ms`);
     
     originalSend.call(this, data);
   };

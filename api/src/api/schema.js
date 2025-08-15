@@ -13,6 +13,7 @@ export const typeDefs = `#graphql
     createdAt: String!
     updatedAt: String
     filename: String
+    viewCount: Int!
   }
 
   type Profile {
@@ -44,6 +45,10 @@ export const typeDefs = `#graphql
   type StiriResponse {
     stiri: [Stire!]!
     pagination: PaginationInfo!
+  }
+
+  type MostReadResponse {
+    stiri: [Stire!]!
   }
 
   type RequestLog {
@@ -106,6 +111,8 @@ export const typeDefs = `#graphql
     ): StiriResponse!
     
     getStireById(id: ID!): Stire
+    # Cele mai citite știri
+    getMostReadStiri(period: String, limit: Int): MostReadResponse!
     # Căutare full-text/fuzzy în știri
     searchStiri(
       query: String!

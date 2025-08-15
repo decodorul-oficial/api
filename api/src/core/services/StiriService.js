@@ -121,6 +121,72 @@ export class StiriService {
   }
 
   /**
+   * Înregistrează o vizualizare pentru o știre
+   * @param {number} id - ID știre
+   * @param {Object} meta - Metadate request
+   * @param {string} meta.ip - IP client
+   * @param {string} [meta.userAgent] - User-Agent opțional
+   * @param {string} [meta.sessionId] - Session ID opțional
+   * @returns {Promise<boolean>} True dacă a fost înregistrată o nouă vizualizare
+   */
+  async trackStireView(id, { ip, userAgent, sessionId } = {}) {
+    try {
+      if (!id || isNaN(Number(id))) {
+        throw new GraphQLError('ID invalid pentru știre', {
+          extensions: { code: 'VALIDATION_ERROR' }
+        });
+      }
+
+      if (!ip || typeof ip !== 'string') {
+        throw new GraphQLError('IP invalid pentru tracking vizualizări', {
+          extensions: { code: 'VALIDATION_ERROR' }
+        });
+      }
+
+      // Asigură-te că știrea există
+      const stire = await this.stiriRepository.getStireById(Number(id));
+      if (!stire) {
+        throw new GraphQLError('Știrea nu a fost găsită', {
+          extensions: { code: 'NOT_FOUND' }
+        });
+      }
+
+      return await this.stiriRepository.trackNewsView(Number(id), {
+        ip,
+        userAgent,
+        sessionId
+      });
+    } catch (error) {
+      if (error instanceof GraphQLError) {
+        throw error;
+      }
+      throw new GraphQLError('Eroare internă la tracking vizualizare', {
+        extensions: { code: 'INTERNAL_ERROR' }
+      });
+    }
+  }
+
+  /**
+   * Returnează cele mai citite știri
+   */
+  async getMostReadStiri({ period = 'all', limit } = {}) {
+    try {
+      const normalizedLimit = typeof limit === 'number' && limit > 0 ? limit : validationConfig.defaultStiriLimit;
+      const items = await this.stiriRepository.getMostReadStiri({ period, limit: normalizedLimit });
+      return {
+        stiri: items.map((stire) => this.transformStireForGraphQL(stire))
+      };
+    } catch (error) {
+      if (error instanceof GraphQLError) {
+        throw error;
+      }
+      throw new GraphQLError('Eroare internă la obținerea celor mai citite știri', {
+        extensions: { code: 'INTERNAL_ERROR' }
+      });
+    }
+  }
+
+  /**
    * Caută știri după un query text (fuzzy/full-text)
    * - Caută în title și content (JSONB) ignorând markup HTML/chei JSON
    */
@@ -296,7 +362,8 @@ export class StiriService {
       content: stire.content,
       createdAt: stire.created_at,
       updatedAt: stire.updated_at,
-      filename: stire.filename
+      filename: stire.filename,
+      viewCount: stire.view_count ?? 0
     };
   }
 }

@@ -52,7 +52,8 @@ const typeResolvers = {
     content: (parent) => parent.content,
     createdAt: (parent) => parent.createdAt,
     updatedAt: (parent) => parent.updatedAt,
-    filename: (parent) => parent.filename
+    filename: (parent) => parent.filename,
+    viewCount: (parent) => parent.viewCount
   },
 
   RequestLog: {
@@ -99,6 +100,13 @@ export function createResolvers(services) {
         try {
           // Validează ID-ul
           const validatedId = validateGraphQLData(id, idSchema);
+          // Înregistrează vizualizarea folosind metadatele request-ului (IP și UA)
+          const ip = context?.req?.headers?.['x-forwarded-for']?.split(',')[0]?.trim() || context?.req?.ip || context?.ip;
+          const userAgent = context?.req?.headers?.['user-agent'];
+          if (ip) {
+            // Nu blocăm dacă tracking-ul eșuează; returnăm totuși știrea
+            try { await stiriService.trackStireView(validatedId, { ip, userAgent }); } catch (e) {}
+          }
           return await stiriService.getStireById(validatedId);
         } catch (error) {
           throw error;
@@ -124,6 +132,15 @@ export function createResolvers(services) {
             query: args.query,
             ...validatedArgs
           });
+        } catch (error) {
+          throw error;
+        }
+      },
+
+      // Cele mai citite știri
+      getMostReadStiri: async (parent, { period, limit }, context) => {
+        try {
+          return await stiriService.getMostReadStiri({ period, limit });
         } catch (error) {
           throw error;
         }

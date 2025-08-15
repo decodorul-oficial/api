@@ -134,6 +134,72 @@ export class StiriRepository {
   }
 
   /**
+   * Înregistrează o vizualizare pentru o știre cu deduplicare pe 24h
+   * @param {number} newsId - ID-ul știrii
+   * @param {Object} options - Opțiuni pentru tracking
+   * @param {string} options.ip - Adresa IP (string)
+   * @param {string} [options.userAgent] - User-Agent (opțional)
+   * @param {string} [options.sessionId] - ID sesiune (opțional)
+   * @returns {Promise<boolean>} True dacă s-a înregistrat o nouă vizualizare
+   */
+  async trackNewsView(newsId, { ip, userAgent, sessionId } = {}) {
+    try {
+      const rpc = await this.publicSchema.rpc('track_news_view', {
+        p_news_id: Number(newsId),
+        p_ip: ip,
+        p_user_agent: userAgent || null,
+        p_session_id: sessionId || null
+      });
+
+      if (rpc.error) {
+        throw new GraphQLError(`Eroare la înregistrarea vizualizării: ${rpc.error.message}`, {
+          extensions: { code: 'DATABASE_ERROR' }
+        });
+      }
+
+      return Boolean(rpc.data);
+    } catch (error) {
+      if (error instanceof GraphQLError) {
+        throw error;
+      }
+      throw new GraphQLError('Eroare internă la înregistrarea vizualizării', {
+        extensions: { code: 'INTERNAL_ERROR' }
+      });
+    }
+  }
+
+  /**
+   * Obține cele mai citite știri, opțional filtrate pe perioadă
+   * @param {Object} options
+   * @param {string} [options.period] - '24h' | '7d' | '30d' | 'all'
+   * @param {number} [options.limit] - Numărul de știri
+   * @returns {Promise<Array>} Lista de știri ordonate descrescător după view_count
+   */
+  async getMostReadStiri({ period = 'all', limit = 10 } = {}) {
+    try {
+      const rpc = await this.publicSchema.rpc('get_most_read_stiri', {
+        p_period: period,
+        p_limit: limit
+      });
+
+      if (rpc.error) {
+        throw new GraphQLError(`Eroare la obținerea celor mai citite știri: ${rpc.error.message}`, {
+          extensions: { code: 'DATABASE_ERROR' }
+        });
+      }
+
+      return rpc.data || [];
+    } catch (error) {
+      if (error instanceof GraphQLError) {
+        throw error;
+      }
+      throw new GraphQLError('Eroare internă la obținerea celor mai citite știri', {
+        extensions: { code: 'INTERNAL_ERROR' }
+      });
+    }
+  }
+
+  /**
    * Creează o nouă știre
    * @param {Object} stireData - Datele știrii
    * @returns {Promise<Object>} Știrea creată

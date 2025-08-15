@@ -224,7 +224,8 @@ async function initializeServer() {
           // Contextul GraphQL - utilizatorul este setat de middleware-ul de autentificare
           return {
             user: req.user,
-            supabase: supabaseClient.getServiceClient()
+            supabase: supabaseClient.getServiceClient(),
+            req
           };
         }
       })
@@ -238,6 +239,39 @@ async function initializeServer() {
         version: '1.0.0',
         environment: process.env.NODE_ENV || 'development'
       });
+    });
+
+    // Endpoint REST: Vizualizare știre după ID cu tracking vizualizări
+    app.get('/news/:id', async (req, res) => {
+      try {
+        const { id } = req.params;
+        const ip = (req.headers['x-forwarded-for']?.split(',')[0]?.trim()) || req.ip;
+        const userAgent = req.headers['user-agent'];
+        if (ip) {
+          try { await stiriService.trackStireView(id, { ip, userAgent }); } catch (e) {}
+        }
+        const stire = await stiriService.getStireById(id);
+        if (!stire) {
+          return res.status(404).json({ error: 'Not Found' });
+        }
+        res.json(stire);
+      } catch (err) {
+        console.error('Eroare GET /news/:id', err);
+        res.status(500).json({ error: 'Eroare internă a serverului' });
+      }
+    });
+
+    // Endpoint REST: Cele mai citite știri
+    app.get('/news/most-read', async (req, res) => {
+      try {
+        const period = typeof req.query.period === 'string' ? req.query.period : undefined;
+        const limit = req.query.limit ? parseInt(String(req.query.limit), 10) : undefined;
+        const result = await stiriService.getMostReadStiri({ period, limit });
+        res.json(result);
+      } catch (err) {
+        console.error('Eroare GET /news/most-read', err);
+        res.status(500).json({ error: 'Eroare internă a serverului' });
+      }
     });
 
     // Endpoint pentru informații despre API
