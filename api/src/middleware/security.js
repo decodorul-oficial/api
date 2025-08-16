@@ -239,9 +239,7 @@ function sanitizeHeaders(req) {
   // Elimină header-uri potențial periculoase
   const dangerousHeaders = [
     'x-forwarded-host',
-    'x-forwarded-proto',
-    'x-real-ip',
-    'x-forwarded-for'
+    'x-forwarded-proto'
   ];
   
   dangerousHeaders.forEach(header => {

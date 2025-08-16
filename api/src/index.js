@@ -54,6 +54,21 @@ import helmet from 'helmet';
 import depthLimit from 'graphql-depth-limit';
 import http from 'http';
 
+// Utilitar simplu pentru a extrage o valoare din header-ul Cookie fără dependențe
+function getCookieValue(cookieHeader, name) {
+  try {
+    if (!cookieHeader || !name) return undefined;
+    const cookies = String(cookieHeader).split(';');
+    for (const part of cookies) {
+      const [k, v] = part.split('=');
+      if (k && k.trim() === name) {
+        return decodeURIComponent((v || '').trim());
+      }
+    }
+  } catch (_) {}
+  return undefined;
+}
+
 // Importă configurația
 import { 
   apolloConfig, 
@@ -101,6 +116,8 @@ async function initializeServer() {
 
     // Inițializează Express și HTTP server
     app = express();
+    // Respectă IP-urile reale din spatele proxy-urilor (Vercel/Cloudflare)
+    app.set('trust proxy', true);
     httpServer = http.createServer(app);
 
     // Configurează middleware-urile de securitate
@@ -245,10 +262,18 @@ async function initializeServer() {
     app.get('/news/:id', async (req, res) => {
       try {
         const { id } = req.params;
-        const ip = (req.headers['x-forwarded-for']?.split(',')[0]?.trim()) || req.ip;
+        const ip =
+          (req.headers['cf-connecting-ip'])
+          || (req.headers['x-real-ip'])
+          || (req.headers['x-forwarded-for']?.split(',')[0]?.trim())
+          || req.ip
+          || req.connection?.remoteAddress;
         const userAgent = req.headers['user-agent'];
+        // Folosește o sesiune simplă pe cookie pentru deduplicări mai inteligente
+        const sessionId = getCookieValue(req.headers?.cookie, 'mo_session')
+          || req.headers['x-session-id'];
         if (ip) {
-          try { await stiriService.trackStireView(id, { ip, userAgent }); } catch (e) {}
+          try { await stiriService.trackStireView(id, { ip, userAgent, sessionId }); } catch (e) {}
         }
         const stire = await stiriService.getStireById(id);
         if (!stire) {

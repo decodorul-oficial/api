@@ -101,11 +101,28 @@ export function createResolvers(services) {
           // Validează ID-ul
           const validatedId = validateGraphQLData(id, idSchema);
           // Înregistrează vizualizarea folosind metadatele request-ului (IP și UA)
-          const ip = context?.req?.headers?.['x-forwarded-for']?.split(',')[0]?.trim() || context?.req?.ip || context?.ip;
+          const ip =
+            context?.req?.headers?.['cf-connecting-ip']
+            || context?.req?.headers?.['x-real-ip']
+            || context?.req?.headers?.['x-forwarded-for']?.split(',')[0]?.trim()
+            || context?.req?.ip
+            || context?.ip;
           const userAgent = context?.req?.headers?.['user-agent'];
+          const cookieHeader = context?.req?.headers?.cookie;
+          const sessionId = (() => {
+            try {
+              if (!cookieHeader) return undefined;
+              const parts = String(cookieHeader).split(';');
+              for (const p of parts) {
+                const [k, v] = p.split('=');
+                if (k && k.trim() === 'mo_session') return decodeURIComponent((v || '').trim());
+              }
+            } catch (_) {}
+            return undefined;
+          })() || context?.req?.headers?.['x-session-id'];
           if (ip) {
             // Nu blocăm dacă tracking-ul eșuează; returnăm totuși știrea
-            try { await stiriService.trackStireView(validatedId, { ip, userAgent }); } catch (e) {}
+            try { await stiriService.trackStireView(validatedId, { ip, userAgent, sessionId }); } catch (e) {}
           }
           return await stiriService.getStireById(validatedId);
         } catch (error) {
