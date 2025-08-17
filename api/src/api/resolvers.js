@@ -154,6 +154,30 @@ export function createResolvers(services) {
         }
       },
 
+      // Căutare după keywords din JSON-ul content
+      searchStiriByKeywords: async (parent, args, context) => {
+        try {
+          const { limit, offset, orderBy, orderDirection } = args || {};
+          const normalizedArgs = {
+            limit,
+            offset,
+            orderBy: orderBy === 'publicationDate'
+              ? 'publication_date'
+              : orderBy === 'createdAt'
+                ? 'created_at'
+                : orderBy,
+            orderDirection
+          };
+          const validatedArgs = validateGraphQLData(normalizedArgs, paginationSchema);
+          return await stiriService.searchStiriByKeywords({
+            keywords: args.keywords,
+            ...validatedArgs
+          });
+        } catch (error) {
+          throw error;
+        }
+      },
+
       // Cele mai citite știri
       getMostReadStiri: async (parent, { period, limit }, context) => {
         try {

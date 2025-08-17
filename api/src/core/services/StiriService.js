@@ -230,6 +230,59 @@ export class StiriService {
   }
 
   /**
+   * Caută știri după keywords din content JSONB
+   * - Filtrează știrile care conțin toate keywords specificate (AND logic)
+   */
+  async searchStiriByKeywords({ keywords, limit = validationConfig.defaultStiriLimit, offset = 0, orderBy = 'publication_date', orderDirection = 'desc' }) {
+    try {
+      if (!Array.isArray(keywords) || keywords.length === 0) {
+        throw new GraphQLError('Lista de keywords este invalidă sau goală', {
+          extensions: { code: 'VALIDATION_ERROR' }
+        });
+      }
+      const normalizedKeywords = keywords
+        .filter(k => typeof k === 'string' && k.trim().length > 0)
+        .map(k => k.trim());
+      if (normalizedKeywords.length === 0) {
+        throw new GraphQLError('Lista de keywords nu conține valori valide', {
+          extensions: { code: 'VALIDATION_ERROR' }
+        });
+      }
+
+      const result = await this.stiriRepository.searchStiriByKeywords({
+        keywords: normalizedKeywords,
+        limit,
+        offset,
+        orderBy,
+        orderDirection
+      });
+
+      return {
+        stiri: result.stiri.map(stire => this.transformStireForGraphQL(stire)),
+        pagination: {
+          totalCount: result.totalCount,
+          hasNextPage: result.hasNextPage,
+          hasPreviousPage: result.hasPreviousPage,
+          currentPage: Math.floor(offset / limit) + 1,
+          totalPages: Math.ceil(result.totalCount / limit)
+        }
+      };
+    } catch (error) {
+      if (error instanceof GraphQLError) {
+        throw error;
+      }
+      if (error instanceof z.ZodError) {
+        throw new GraphQLError(`Eroare de validare: ${error.errors[0].message}`, {
+          extensions: { code: 'VALIDATION_ERROR' }
+        });
+      }
+      throw new GraphQLError('Eroare internă la căutarea știrilor după keywords', {
+        extensions: { code: 'INTERNAL_ERROR' }
+      });
+    }
+  }
+
+  /**
    * Creează o nouă știre
    * @param {Object} stireData - Datele știrii
    * @returns {Promise<Object>} Știrea creată

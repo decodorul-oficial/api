@@ -122,6 +122,15 @@ export const typeDefs = `#graphql
       orderDirection: String
     ): StiriResponse!
 
+    # Căutare după keywords din JSON-ul content.keywords
+    searchStiriByKeywords(
+      keywords: [String!]!
+      limit: Int
+      offset: Int
+      orderBy: String
+      orderDirection: String
+    ): StiriResponse!
+
     # Query-uri pentru utilizatori
     me: User
     getUserProfile(userId: ID!): Profile

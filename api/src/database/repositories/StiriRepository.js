@@ -101,6 +101,46 @@ export class StiriRepository {
   }
 
   /**
+   * Caută știri care conțin toate keywords specificate în content.keywords (JSONB)
+   * Folosește JSONB functions: content -> 'keywords' @> array și paginare/sortare obișnuită
+   */
+  async searchStiriByKeywords({ keywords, limit = 10, offset = 0, orderBy = 'publication_date', orderDirection = 'desc' } = {}) {
+    try {
+      // Normalizăm ordonarea
+      const orderColumn = ['publication_date', 'created_at', 'title', 'id'].includes(orderBy) ? orderBy : 'publication_date';
+      const ascending = orderDirection === 'asc';
+
+      // Construim un array JSONB pentru @>
+      const { data, error, count } = await this.publicSchema
+        .from(this.tableName)
+        .select('*', { count: 'exact' })
+        .contains('content', { keywords })
+        .order(orderColumn, { ascending })
+        .range(offset, offset + limit - 1);
+
+      if (error) {
+        throw new GraphQLError(`Eroare la căutarea știrilor după keywords: ${error.message}`, {
+          extensions: { code: 'DATABASE_ERROR' }
+        });
+      }
+
+      return {
+        stiri: data || [],
+        totalCount: count || 0,
+        hasNextPage: (offset + limit) < (count || 0),
+        hasPreviousPage: offset > 0
+      };
+    } catch (error) {
+      if (error instanceof GraphQLError) {
+        throw error;
+      }
+      throw new GraphQLError('Eroare internă la căutarea știrilor după keywords', {
+        extensions: { code: 'INTERNAL_ERROR' }
+      });
+    }
+  }
+
+  /**
    * Obține o știre după ID
    * @param {number} id - ID-ul știrii
    * @returns {Promise<Object|null>} Știrea sau null dacă nu există
