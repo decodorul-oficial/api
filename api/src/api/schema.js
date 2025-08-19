@@ -10,10 +10,13 @@ export const typeDefs = `#graphql
     title: String!
     publicationDate: String!
     content: JSON!
+    topics: JSON
+    entities: JSON
     createdAt: String!
     updatedAt: String
     filename: String
     viewCount: Int!
+    predictedViews: Int
   }
 
   type Profile {
@@ -130,6 +133,10 @@ export const typeDefs = `#graphql
       orderBy: String
       orderDirection: String
     ): StiriResponse!
+
+    # Analytics de bază
+    topEntities(limit: Int): JSON!
+    topTopics(limit: Int): JSON!
 
     # Query-uri pentru utilizatori
     me: User

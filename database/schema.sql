@@ -16,6 +16,8 @@ CREATE TABLE IF NOT EXISTS stiri (
     title TEXT NOT NULL,
     publication_date DATE NOT NULL,
     content JSONB NOT NULL,
+    topics JSONB NOT NULL DEFAULT '[]',
+    entities JSONB NOT NULL DEFAULT '[]',
     filename TEXT,
     view_count BIGINT DEFAULT 0 NOT NULL
 );
@@ -43,6 +45,8 @@ CREATE TABLE IF NOT EXISTS usage_logs (
 CREATE INDEX IF NOT EXISTS idx_stiri_publication_date ON stiri(publication_date DESC);
 CREATE INDEX IF NOT EXISTS idx_stiri_created_at ON stiri(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_stiri_view_count ON stiri(view_count DESC);
+CREATE INDEX IF NOT EXISTS idx_stiri_topics_gin ON public.stiri USING GIN (topics);
+CREATE INDEX IF NOT EXISTS idx_stiri_entities_gin ON public.stiri USING GIN (entities);
 
 -- Index compozit pentru rate limiting - optimizare pentru interogările pe user_id și timestamp
 CREATE INDEX IF NOT EXISTS idx_usage_logs_user_timestamp ON usage_logs(user_id, request_timestamp DESC);

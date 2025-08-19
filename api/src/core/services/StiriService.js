@@ -187,6 +187,42 @@ export class StiriService {
   }
 
   /**
+   * Analytics: top entități
+   */
+  async getTopEntities({ limit = 20 } = {}) {
+    try {
+      const normalizedLimit = typeof limit === 'number' && limit > 0 ? limit : 20;
+      const data = await this.stiriRepository.getTopEntities({ limit: normalizedLimit });
+      return data;
+    } catch (error) {
+      if (error instanceof GraphQLError) {
+        throw error;
+      }
+      throw new GraphQLError('Eroare internă la obținerea top entități', {
+        extensions: { code: 'INTERNAL_ERROR' }
+      });
+    }
+  }
+
+  /**
+   * Analytics: top topicuri
+   */
+  async getTopTopics({ limit = 20 } = {}) {
+    try {
+      const normalizedLimit = typeof limit === 'number' && limit > 0 ? limit : 20;
+      const data = await this.stiriRepository.getTopTopics({ limit: normalizedLimit });
+      return data;
+    } catch (error) {
+      if (error instanceof GraphQLError) {
+        throw error;
+      }
+      throw new GraphQLError('Eroare internă la obținerea top topicuri', {
+        extensions: { code: 'INTERNAL_ERROR' }
+      });
+    }
+  }
+
+  /**
    * Caută știri după un query text (fuzzy/full-text)
    * - Caută în title și content (JSONB) ignorând markup HTML/chei JSON
    */
@@ -413,10 +449,13 @@ export class StiriService {
       title: stire.title,
       publicationDate: stire.publication_date,
       content: stire.content,
+      topics: stire.topics,
+      entities: stire.entities,
       createdAt: stire.created_at,
       updatedAt: stire.updated_at,
       filename: stire.filename,
-      viewCount: stire.view_count ?? 0
+      viewCount: stire.view_count ?? 0,
+      predictedViews: stire.predicted_views ?? null
     };
   }
 }

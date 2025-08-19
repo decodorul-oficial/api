@@ -50,6 +50,8 @@ const typeResolvers = {
     title: (parent) => parent.title,
     publicationDate: (parent) => parent.publicationDate,
     content: (parent) => parent.content,
+    topics: (parent) => parent.topics,
+    entities: (parent) => parent.entities,
     createdAt: (parent) => parent.createdAt,
     updatedAt: (parent) => parent.updatedAt,
     filename: (parent) => parent.filename,
@@ -182,6 +184,24 @@ export function createResolvers(services) {
       getMostReadStiri: async (parent, { period, limit }, context) => {
         try {
           return await stiriService.getMostReadStiri({ period, limit });
+        } catch (error) {
+          throw error;
+        }
+      },
+
+      // Analytics: top entități
+      topEntities: async (parent, { limit }, context) => {
+        try {
+          return await stiriService.getTopEntities({ limit });
+        } catch (error) {
+          throw error;
+        }
+      },
+
+      // Analytics: top topicuri
+      topTopics: async (parent, { limit }, context) => {
+        try {
+          return await stiriService.getTopTopics({ limit });
         } catch (error) {
           throw error;
         }

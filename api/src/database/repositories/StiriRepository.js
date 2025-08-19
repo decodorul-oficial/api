@@ -240,6 +240,50 @@ export class StiriRepository {
   }
 
   /**
+   * Returnează top entități ca JSONB de la funcția SQL
+   */
+  async getTopEntities({ limit = 20 } = {}) {
+    try {
+      const rpc = await this.publicSchema.rpc('get_top_entities', { p_limit: limit });
+      if (rpc.error) {
+        throw new GraphQLError(`Eroare la obținerea top entități: ${rpc.error.message}`, {
+          extensions: { code: 'DATABASE_ERROR' }
+        });
+      }
+      return rpc.data || [];
+    } catch (error) {
+      if (error instanceof GraphQLError) {
+        throw error;
+      }
+      throw new GraphQLError('Eroare internă la obținerea top entități', {
+        extensions: { code: 'INTERNAL_ERROR' }
+      });
+    }
+  }
+
+  /**
+   * Returnează top topicuri ca JSONB de la funcția SQL
+   */
+  async getTopTopics({ limit = 20 } = {}) {
+    try {
+      const rpc = await this.publicSchema.rpc('get_top_topics', { p_limit: limit });
+      if (rpc.error) {
+        throw new GraphQLError(`Eroare la obținerea top topicuri: ${rpc.error.message}`, {
+          extensions: { code: 'DATABASE_ERROR' }
+        });
+      }
+      return rpc.data || [];
+    } catch (error) {
+      if (error instanceof GraphQLError) {
+        throw error;
+      }
+      throw new GraphQLError('Eroare internă la obținerea top topicuri', {
+        extensions: { code: 'INTERNAL_ERROR' }
+      });
+    }
+  }
+
+  /**
    * Creează o nouă știre
    * @param {Object} stireData - Datele știrii
    * @returns {Promise<Object>} Știrea creată
