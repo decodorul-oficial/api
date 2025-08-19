@@ -104,17 +104,27 @@ export class StiriRepository {
    * Caută știri care conțin toate keywords specificate în content.keywords (JSONB)
    * Folosește JSONB functions: content -> 'keywords' @> array și paginare/sortare obișnuită
    */
-  async searchStiriByKeywords({ keywords, limit = 10, offset = 0, orderBy = 'publication_date', orderDirection = 'desc' } = {}) {
+  async searchStiriByKeywords({ keywords, publicationDateFrom, publicationDateTo, limit = 10, offset = 0, orderBy = 'publication_date', orderDirection = 'desc' } = {}) {
     try {
       // Normalizăm ordonarea
       const orderColumn = ['publication_date', 'created_at', 'title', 'id'].includes(orderBy) ? orderBy : 'publication_date';
       const ascending = orderDirection === 'asc';
 
-      // Construim un array JSONB pentru @>
-      const { data, error, count } = await this.publicSchema
+      // Query de bază: conține toate keywords în content.keywords
+      let query = this.publicSchema
         .from(this.tableName)
         .select('*', { count: 'exact' })
-        .contains('content', { keywords })
+        .contains('content', { keywords });
+
+      // Aplicați filtrele de dată pe coloana DATE `publication_date`
+      if (publicationDateFrom) {
+        query = query.gte('publication_date', publicationDateFrom);
+      }
+      if (publicationDateTo) {
+        query = query.lte('publication_date', publicationDateTo);
+      }
+
+      const { data, error, count } = await query
         .order(orderColumn, { ascending })
         .range(offset, offset + limit - 1);
 

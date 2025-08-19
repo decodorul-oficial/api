@@ -173,6 +173,8 @@ export function createResolvers(services) {
           const validatedArgs = validateGraphQLData(normalizedArgs, paginationSchema);
           return await stiriService.searchStiriByKeywords({
             keywords: args.keywords,
+            publicationDateFrom: args.publicationDateFrom,
+            publicationDateTo: args.publicationDateTo,
             ...validatedArgs
           });
         } catch (error) {

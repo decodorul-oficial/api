@@ -269,7 +269,7 @@ export class StiriService {
    * Caută știri după keywords din content JSONB
    * - Filtrează știrile care conțin toate keywords specificate (AND logic)
    */
-  async searchStiriByKeywords({ keywords, limit = validationConfig.defaultStiriLimit, offset = 0, orderBy = 'publication_date', orderDirection = 'desc' }) {
+  async searchStiriByKeywords({ keywords, publicationDateFrom, publicationDateTo, limit = validationConfig.defaultStiriLimit, offset = 0, orderBy = 'publication_date', orderDirection = 'desc' }) {
     try {
       if (!Array.isArray(keywords) || keywords.length === 0) {
         throw new GraphQLError('Lista de keywords este invalidă sau goală', {
@@ -285,8 +285,38 @@ export class StiriService {
         });
       }
 
+      // Normalizează și validează intervalul de date (publication_date este de tip DATE în DB)
+      const normalizeDateInput = (value) => {
+        if (!value) return undefined;
+        if (typeof value !== 'string') {
+          throw new GraphQLError('Data trebuie să fie un string în format ISO (YYYY-MM-DD sau ISO8601)', {
+            extensions: { code: 'VALIDATION_ERROR' }
+          });
+        }
+        const dateOnlyMatch = value.match(/^\d{4}-\d{2}-\d{2}$/);
+        if (dateOnlyMatch) return value; // deja YYYY-MM-DD
+        const parsed = new Date(value);
+        if (isNaN(parsed.getTime())) {
+          throw new GraphQLError('Formatul datei este invalid. Folosește YYYY-MM-DD sau ISO8601.', {
+            extensions: { code: 'VALIDATION_ERROR' }
+          });
+        }
+        // Convertim la data UTC (YYYY-MM-DD) pentru a evita problemele de fus orar
+        return parsed.toISOString().slice(0, 10);
+      };
+
+      const normalizedFrom = normalizeDateInput(publicationDateFrom);
+      const normalizedTo = normalizeDateInput(publicationDateTo);
+      if (normalizedFrom && normalizedTo && normalizedFrom > normalizedTo) {
+        throw new GraphQLError('Intervalul de date este invalid: data de început este după data de sfârșit', {
+          extensions: { code: 'VALIDATION_ERROR' }
+        });
+      }
+
       const result = await this.stiriRepository.searchStiriByKeywords({
         keywords: normalizedKeywords,
+        publicationDateFrom: normalizedFrom,
+        publicationDateTo: normalizedTo,
         limit,
         offset,
         orderBy,

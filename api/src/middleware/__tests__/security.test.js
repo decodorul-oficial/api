@@ -212,15 +212,13 @@ describe('Security Middleware Tests', () => {
 
       securityLoggingMiddleware(mockReq, mockRes, mockNext);
 
-      // Simulate a slow response
+      // Simulate a response
       mockRes.statusCode = 200;
       mockRes.send('response');
 
-      // Wait for the response to be processed
-      setTimeout(() => {
-        expect(consoleSpy).toHaveBeenCalled();
-        consoleSpy.mockRestore();
-      }, 100);
+      // Logging happens synchronously on res.send override
+      expect(consoleSpy).toHaveBeenCalled();
+      consoleSpy.mockRestore();
     });
   });
 
