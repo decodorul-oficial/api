@@ -82,10 +82,12 @@ import supabaseClient from './database/supabaseClient.js';
 // Importă repository-urile
 import StiriRepository from './database/repositories/StiriRepository.js';
 import UserRepository from './database/repositories/UserRepository.js';
+import NewsletterRepository from './database/repositories/NewsletterRepository.js';
 
 // Importă serviciile
 import UserService from './core/services/UserService.js';
 import StiriService from './core/services/StiriService.js';
+import NewsletterService from './core/services/NewsletterService.js';
 
 // Importă middleware-urile
 import { createAuthMiddleware } from './middleware/auth.js';
@@ -151,13 +153,15 @@ async function initializeServer() {
     const serviceClient = supabaseClient.getServiceClient();
     const stiriRepository = new StiriRepository(serviceClient);
     const userRepository = new UserRepository(serviceClient);
+    const newsletterRepository = new NewsletterRepository(serviceClient);
 
     // Inițializează serviciile (injectăm explicit clientul Supabase și repository-urile)
     const userService = new UserService(serviceClient, userRepository);
     const stiriService = new StiriService(stiriRepository);
+    const newsletterService = new NewsletterService(newsletterRepository);
 
     // Creează resolver-ii
-    const resolvers = createResolvers({ userService, stiriService, userRepository });
+    const resolvers = createResolvers({ userService, stiriService, userRepository, newsletterService });
 
     // Configurează serverul Apollo
     server = new ApolloServer({

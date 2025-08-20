@@ -37,6 +37,21 @@ export const typeDefs = `#graphql
     user: User!
   }
 
+  type NewsletterSubscriber {
+    id: ID
+    email: String!
+    status: String!
+    locale: String
+    tags: JSON
+    source: String
+    createdAt: String
+    updatedAt: String
+    subscribedAt: String
+    unsubscribedAt: String
+    unsubscribeReason: String
+    metadata: JSON
+  }
+
   type PaginationInfo {
     totalCount: Int!
     hasNextPage: Boolean!
@@ -103,6 +118,20 @@ export const typeDefs = `#graphql
     subscriptionTier: String
   }
 
+  input SubscribeNewsletterInput {
+    email: String!
+    locale: String
+    tags: [String!]
+    source: String
+    consentVersion: String
+    metadata: JSON
+  }
+
+  input UnsubscribeNewsletterInput {
+    email: String!
+    reason: String
+  }
+
   # Query-uri
   type Query {
     # Query-uri pentru știri
@@ -153,6 +182,9 @@ export const typeDefs = `#graphql
     
     # Query pentru informații despre rate limiting
     getRateLimitInfo: RateLimitInfo!
+
+    # Newsletter
+    getNewsletterSubscription(email: String!): NewsletterSubscriber
   }
 
   # Mutații
@@ -168,6 +200,10 @@ export const typeDefs = `#graphql
 
     # Mutații pentru profile
     updateProfile(input: UpdateProfileInput!): Profile!
+
+    # Newsletter
+    subscribeNewsletter(input: SubscribeNewsletterInput!): NewsletterSubscriber!
+    unsubscribeNewsletter(input: UnsubscribeNewsletterInput!): NewsletterSubscriber!
   }
 
   # Scalar pentru JSON

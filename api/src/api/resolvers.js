@@ -71,7 +71,7 @@ const typeResolvers = {
  * @returns {Object} Resolver-ii GraphQL
  */
 export function createResolvers(services) {
-  const { userService, stiriService, userRepository } = services;
+  const { userService, stiriService, userRepository, newsletterService } = services;
 
   return {
     ...scalarResolvers,
@@ -287,6 +287,15 @@ export function createResolvers(services) {
         } catch (error) {
           throw error;
         }
+      },
+
+      // Newsletter
+      getNewsletterSubscription: async (parent, { email }, context) => {
+        try {
+          return await newsletterService.getSubscriptionByEmail(email);
+        } catch (error) {
+          throw error;
+        }
       }
     },
 
@@ -385,6 +394,35 @@ export function createResolvers(services) {
           const validatedInput = validateGraphQLData(input, updateProfileInputSchema);
 
           return await userService.updateUserProfile(context.user.id, validatedInput);
+        } catch (error) {
+          throw error;
+        }
+      },
+
+      // Newsletter
+      subscribeNewsletter: async (parent, { input }, context) => {
+        try {
+          const ip = context?.req?.headers?.['cf-connecting-ip']
+            || context?.req?.headers?.['x-real-ip']
+            || context?.req?.headers?.['x-forwarded-for']?.split(',')[0]?.trim()
+            || context?.req?.ip
+            || context?.ip;
+          const userAgent = context?.req?.headers?.['user-agent'];
+          return await newsletterService.subscribe(input, { ip, userAgent });
+        } catch (error) {
+          throw error;
+        }
+      },
+
+      unsubscribeNewsletter: async (parent, { input }, context) => {
+        try {
+          const ip = context?.req?.headers?.['cf-connecting-ip']
+            || context?.req?.headers?.['x-real-ip']
+            || context?.req?.headers?.['x-forwarded-for']?.split(',')[0]?.trim()
+            || context?.req?.ip
+            || context?.ip;
+          const userAgent = context?.req?.headers?.['user-agent'];
+          return await newsletterService.unsubscribe(input, { ip, userAgent });
         } catch (error) {
           throw error;
         }
