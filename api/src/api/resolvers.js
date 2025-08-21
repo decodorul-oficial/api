@@ -71,7 +71,7 @@ const typeResolvers = {
  * @returns {Object} Resolver-ii GraphQL
  */
 export function createResolvers(services) {
-  const { userService, stiriService, userRepository, newsletterService } = services;
+  const { userService, stiriService, userRepository, newsletterService, dailySynthesesService } = services;
 
   return {
     ...scalarResolvers,
@@ -294,6 +294,23 @@ export function createResolvers(services) {
       getNewsletterSubscription: async (parent, { email }, context) => {
         try {
           return await newsletterService.getSubscriptionByEmail(email);
+        } catch (error) {
+          throw error;
+        }
+      },
+
+      // Daily Syntheses
+      getDailySynthesis: async (parent, { date }, context) => {
+        try {
+          const synthesis = await dailySynthesesService.getDetailedByDate(date);
+          if (!synthesis) return null;
+          return {
+            synthesisDate: synthesis.synthesis_date,
+            title: synthesis.title,
+            content: synthesis.content,
+            summary: synthesis.summary,
+            metadata: synthesis.metadata
+          };
         } catch (error) {
           throw error;
         }

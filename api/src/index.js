@@ -83,11 +83,13 @@ import supabaseClient from './database/supabaseClient.js';
 import StiriRepository from './database/repositories/StiriRepository.js';
 import UserRepository from './database/repositories/UserRepository.js';
 import NewsletterRepository from './database/repositories/NewsletterRepository.js';
+import DailySynthesesRepository from './database/repositories/DailySynthesesRepository.js';
 
 // Importă serviciile
 import UserService from './core/services/UserService.js';
 import StiriService from './core/services/StiriService.js';
 import NewsletterService from './core/services/NewsletterService.js';
+import DailySynthesesService from './core/services/DailySynthesesService.js';
 
 // Importă middleware-urile
 import { createAuthMiddleware } from './middleware/auth.js';
@@ -154,14 +156,16 @@ async function initializeServer() {
     const stiriRepository = new StiriRepository(serviceClient);
     const userRepository = new UserRepository(serviceClient);
     const newsletterRepository = new NewsletterRepository(serviceClient);
+    const dailySynthesesRepository = new DailySynthesesRepository(serviceClient);
 
     // Inițializează serviciile (injectăm explicit clientul Supabase și repository-urile)
     const userService = new UserService(serviceClient, userRepository);
     const stiriService = new StiriService(stiriRepository);
     const newsletterService = new NewsletterService(newsletterRepository);
+    const dailySynthesesService = new DailySynthesesService(dailySynthesesRepository);
 
     // Creează resolver-ii
-    const resolvers = createResolvers({ userService, stiriService, userRepository, newsletterService });
+    const resolvers = createResolvers({ userService, stiriService, userRepository, newsletterService, dailySynthesesService });
 
     // Configurează serverul Apollo
     server = new ApolloServer({
@@ -300,6 +304,34 @@ async function initializeServer() {
       } catch (err) {
         console.error('Eroare GET /news/most-read', err);
         res.status(500).json({ error: 'Eroare internă a serverului' });
+      }
+    });
+
+    // Endpoint REST: Sinteza zilnică de tip detailed pentru o zi dată
+    app.get('/syntheses/daily', async (req, res) => {
+      try {
+        const dateParam = typeof req.query.date === 'string' ? req.query.date : undefined;
+        if (!dateParam) {
+          return res.status(400).json({ error: 'Parametrul "date" este obligatoriu (YYYY-MM-DD).' });
+        }
+        const synthesis = await dailySynthesesService.getDetailedByDate(dateParam);
+        if (!synthesis) {
+          return res.status(404).json({ error: 'Sinteză inexistentă pentru data cerută.' });
+        }
+        // Returnăm câmpurile necesare exact cum sunt în DB (content este HTML brut)
+        return res.json({
+          synthesis_date: synthesis.synthesis_date,
+          title: synthesis.title,
+          content: synthesis.content,
+          summary: synthesis.summary,
+          metadata: synthesis.metadata
+        });
+      } catch (err) {
+        console.error('Eroare GET /syntheses/daily', err);
+        if (err?.extensions?.code === 'BAD_USER_INPUT') {
+          return res.status(400).json({ error: err.message });
+        }
+        return res.status(500).json({ error: 'Eroare internă a serverului' });
       }
     });
 

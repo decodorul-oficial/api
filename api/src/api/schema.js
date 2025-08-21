@@ -5,6 +5,13 @@
 
 export const typeDefs = `#graphql
   # Tipuri de bază
+  type DailySynthesis {
+    synthesisDate: String!
+    title: String!
+    content: String!
+    summary: String
+    metadata: JSON
+  }
   type Stire {
     id: ID!
     title: String!
@@ -186,6 +193,9 @@ export const typeDefs = `#graphql
 
     # Newsletter
     getNewsletterSubscription(email: String!): NewsletterSubscriber
+
+    # Daily Syntheses
+    getDailySynthesis(date: String!): DailySynthesis
   }
 
   # Mutații
