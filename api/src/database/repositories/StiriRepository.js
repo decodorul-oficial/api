@@ -110,11 +110,15 @@ export class StiriRepository {
       const orderColumn = ['publication_date', 'created_at', 'title', 'id'].includes(orderBy) ? orderBy : 'publication_date';
       const ascending = orderDirection === 'asc';
 
-      // Query de bază: conține toate keywords în content.keywords
+      // Query de bază
       let query = this.publicSchema
         .from(this.tableName)
-        .select('*', { count: 'exact' })
-        .contains('content', { keywords });
+        .select('*', { count: 'exact' });
+
+      // Dacă avem keywords, aplicăm filtrul pe content.keywords
+      if (Array.isArray(keywords) && keywords.length > 0) {
+        query = query.contains('content', { keywords });
+      }
 
       // Aplicați filtrele de dată pe coloana DATE `publication_date`
       if (publicationDateFrom) {

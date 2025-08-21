@@ -266,23 +266,21 @@ export class StiriService {
   }
 
   /**
-   * Caută știri după keywords din content JSONB
-   * - Filtrează știrile care conțin toate keywords specificate (AND logic)
+   * Caută știri după interval de dată și, opțional, keywords din content JSONB
+   * - Dacă `keywords` este prezent și ne-gol, filtrează știrile care conțin toate keywords specificate (AND logic)
+   * - Dacă `keywords` lipsește sau este gol, filtrează doar după intervalul de dată
    */
   async searchStiriByKeywords({ keywords, publicationDateFrom, publicationDateTo, limit = validationConfig.defaultStiriLimit, offset = 0, orderBy = 'publication_date', orderDirection = 'desc' }) {
     try {
-      if (!Array.isArray(keywords) || keywords.length === 0) {
-        throw new GraphQLError('Lista de keywords este invalidă sau goală', {
-          extensions: { code: 'VALIDATION_ERROR' }
-        });
-      }
-      const normalizedKeywords = keywords
-        .filter(k => typeof k === 'string' && k.trim().length > 0)
-        .map(k => k.trim());
-      if (normalizedKeywords.length === 0) {
-        throw new GraphQLError('Lista de keywords nu conține valori valide', {
-          extensions: { code: 'VALIDATION_ERROR' }
-        });
+      // Normalizează lista de keywords (opțională)
+      let normalizedKeywords;
+      if (Array.isArray(keywords)) {
+        const cleaned = keywords
+          .filter(k => typeof k === 'string' && k.trim().length > 0)
+          .map(k => k.trim());
+        if (cleaned.length > 0) {
+          normalizedKeywords = cleaned;
+        }
       }
 
       // Normalizează și validează intervalul de date (publication_date este de tip DATE în DB)

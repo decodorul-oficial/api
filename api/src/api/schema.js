@@ -156,7 +156,7 @@ export const typeDefs = `#graphql
 
     # Căutare după keywords din JSON-ul content.keywords
     searchStiriByKeywords(
-      keywords: [String!]!
+      keywords: [String!]
       publicationDateFrom: String
       publicationDateTo: String
       limit: Int
