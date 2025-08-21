@@ -154,8 +154,9 @@ export const typeDefs = `#graphql
       orderDirection: String
     ): StiriResponse!
 
-    # Căutare după keywords din JSON-ul content.keywords
+    # Căutare după keywords din JSON-ul content.keywords cu suport pentru fuzzy/full-text search
     searchStiriByKeywords(
+      query: String
       keywords: [String!]
       publicationDateFrom: String
       publicationDateTo: String

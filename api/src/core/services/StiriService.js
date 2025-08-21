@@ -266,12 +266,19 @@ export class StiriService {
   }
 
   /**
-   * Caută știri după interval de dată și, opțional, keywords din content JSONB
+   * Caută știri cu suport pentru fuzzy/full-text search + keywords + filtrare dată
+   * - Suportă fuzzy/full-text search dacă `query` este furnizat
    * - Dacă `keywords` este prezent și ne-gol, filtrează știrile care conțin toate keywords specificate (AND logic)
-   * - Dacă `keywords` lipsește sau este gol, filtrează doar după intervalul de dată
+   * - Suportă filtrare pe interval de date
    */
-  async searchStiriByKeywords({ keywords, publicationDateFrom, publicationDateTo, limit = validationConfig.defaultStiriLimit, offset = 0, orderBy = 'publication_date', orderDirection = 'desc' }) {
+  async searchStiriByKeywords({ query, keywords, publicationDateFrom, publicationDateTo, limit = validationConfig.defaultStiriLimit, offset = 0, orderBy = 'publication_date', orderDirection = 'desc' }) {
     try {
+      // Validează query-ul de căutare (dacă e furnizat)
+      let normalizedQuery;
+      if (query && typeof query === 'string' && query.trim().length >= 2) {
+        normalizedQuery = query.trim();
+      }
+
       // Normalizează lista de keywords (opțională)
       let normalizedKeywords;
       if (Array.isArray(keywords)) {
@@ -281,6 +288,13 @@ export class StiriService {
         if (cleaned.length > 0) {
           normalizedKeywords = cleaned;
         }
+      }
+
+      // Verifică că cel puțin un criteriu de căutare este furnizat
+      if (!normalizedQuery && !normalizedKeywords && !publicationDateFrom && !publicationDateTo) {
+        throw new GraphQLError('Trebuie să furnizați cel puțin un criteriu de căutare: query, keywords sau interval de date', {
+          extensions: { code: 'VALIDATION_ERROR' }
+        });
       }
 
       // Normalizează și validează intervalul de date (publication_date este de tip DATE în DB)
@@ -312,6 +326,7 @@ export class StiriService {
       }
 
       const result = await this.stiriRepository.searchStiriByKeywords({
+        query: normalizedQuery,
         keywords: normalizedKeywords,
         publicationDateFrom: normalizedFrom,
         publicationDateTo: normalizedTo,
@@ -340,7 +355,7 @@ export class StiriService {
           extensions: { code: 'VALIDATION_ERROR' }
         });
       }
-      throw new GraphQLError('Eroare internă la căutarea știrilor după keywords', {
+      throw new GraphQLError('Eroare internă la căutarea îmbunătățită a știrilor', {
         extensions: { code: 'INTERNAL_ERROR' }
       });
     }

@@ -156,7 +156,7 @@ export function createResolvers(services) {
         }
       },
 
-      // Căutare după keywords din JSON-ul content
+      // Căutare îmbunătățită cu suport pentru fuzzy/full-text search + keywords + filtrare dată
       searchStiriByKeywords: async (parent, args, context) => {
         try {
           const { limit, offset, orderBy, orderDirection } = args || {};
@@ -172,6 +172,7 @@ export function createResolvers(services) {
           };
           const validatedArgs = validateGraphQLData(normalizedArgs, paginationSchema);
           return await stiriService.searchStiriByKeywords({
+            query: args.query,
             keywords: args.keywords,
             publicationDateFrom: args.publicationDateFrom,
             publicationDateTo: args.publicationDateTo,

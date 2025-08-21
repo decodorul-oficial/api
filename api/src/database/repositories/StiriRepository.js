@@ -101,42 +101,54 @@ export class StiriRepository {
   }
 
   /**
-   * Caută știri care conțin toate keywords specificate în content.keywords (JSONB)
-   * Folosește JSONB functions: content -> 'keywords' @> array și paginare/sortare obișnuită
+   * Caută știri cu suport pentru fuzzy/full-text search + keywords + filtrare dată
+   * Folosește funcția optimizată stiri_search_enhanced din DB
    */
-  async searchStiriByKeywords({ keywords, publicationDateFrom, publicationDateTo, limit = 10, offset = 0, orderBy = 'publication_date', orderDirection = 'desc' } = {}) {
+  async searchStiriByKeywords({ query, keywords, publicationDateFrom, publicationDateTo, limit = 10, offset = 0, orderBy = 'publication_date', orderDirection = 'desc' } = {}) {
     try {
-      // Normalizăm ordonarea
-      const orderColumn = ['publication_date', 'created_at', 'title', 'id'].includes(orderBy) ? orderBy : 'publication_date';
-      const ascending = orderDirection === 'asc';
-
-      // Query de bază
-      let query = this.publicSchema
-        .from(this.tableName)
-        .select('*', { count: 'exact' });
-
-      // Dacă avem keywords, aplicăm filtrul pe content.keywords
+      // Validează și convertește keywords la formatul corect pentru PostgreSQL
+      let pgKeywords = null;
       if (Array.isArray(keywords) && keywords.length > 0) {
-        query = query.contains('content', { keywords });
+        pgKeywords = keywords.filter(k => typeof k === 'string' && k.trim().length > 0);
+        if (pgKeywords.length === 0) {
+          pgKeywords = null;
+        }
       }
 
-      // Aplicați filtrele de dată pe coloana DATE `publication_date`
-      if (publicationDateFrom) {
-        query = query.gte('publication_date', publicationDateFrom);
-      }
-      if (publicationDateTo) {
-        query = query.lte('publication_date', publicationDateTo);
-      }
+      // Validează formatele de dată
+      const parseDate = (dateStr) => {
+        if (!dateStr) return null;
+        // Acceptă format YYYY-MM-DD sau ISO8601
+        const dateOnlyMatch = dateStr.match(/^\d{4}-\d{2}-\d{2}$/);
+        if (dateOnlyMatch) return dateStr;
+        const parsed = new Date(dateStr);
+        if (isNaN(parsed.getTime())) return null;
+        return parsed.toISOString().slice(0, 10);
+      };
 
-      const { data, error, count } = await query
-        .order(orderColumn, { ascending })
-        .range(offset, offset + limit - 1);
+      const dateFrom = parseDate(publicationDateFrom);
+      const dateTo = parseDate(publicationDateTo);
 
-      if (error) {
-        throw new GraphQLError(`Eroare la căutarea știrilor după keywords: ${error.message}`, {
+      // Folosește RPC îmbunătățit în DB
+      const rpc = await this.publicSchema.rpc('stiri_search_enhanced', {
+        p_query: query || null,
+        p_keywords: pgKeywords,
+        p_date_from: dateFrom,
+        p_date_to: dateTo,
+        p_limit: limit,
+        p_offset: offset,
+        p_order_by: orderBy,
+        p_order_dir: orderDirection
+      });
+
+      if (rpc.error) {
+        throw new GraphQLError(`Eroare la căutarea îmbunătățită a știrilor: ${rpc.error.message}`, {
           extensions: { code: 'DATABASE_ERROR' }
         });
       }
+
+      const data = rpc.data?.items || [];
+      const count = rpc.data?.total_count || rpc.data?.items?.length || 0;
 
       return {
         stiri: data || [],
@@ -148,7 +160,7 @@ export class StiriRepository {
       if (error instanceof GraphQLError) {
         throw error;
       }
-      throw new GraphQLError('Eroare internă la căutarea știrilor după keywords', {
+      throw new GraphQLError('Eroare internă la căutarea îmbunătățită a știrilor', {
         extensions: { code: 'INTERNAL_ERROR' }
       });
     }
