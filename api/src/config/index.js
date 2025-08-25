@@ -38,7 +38,7 @@ export const securityConfig = {
     origin: process.env.CORS_ORIGIN || '*',
     credentials: true,
     methods: ['GET', 'POST', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'X-Internal-API-Key']
   },
   rateLimit: {
     windowMs: 15 * 60 * 1000, // 15 minute
@@ -116,6 +116,9 @@ export function validateEnvironment() {
     
     if (!process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY.length < 50) {
       throw new Error('SUPABASE_SERVICE_ROLE_KEY pare să fie invalid sau prea scurt');
+    }
+    if (!process.env.INTERNAL_API_KEY || process.env.INTERNAL_API_KEY.length < 32) {
+      throw new Error('INTERNAL_API_KEY lipsă sau prea scurt în producție');
     }
   }
 }

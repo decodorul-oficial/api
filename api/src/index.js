@@ -95,6 +95,7 @@ import DailySynthesesService from './core/services/DailySynthesesService.js';
 import { createAuthMiddleware } from './middleware/auth.js';
 import { createRateLimiterMiddleware } from './middleware/rateLimiter.js';
 import { createSecurityMiddleware } from './middleware/security.js';
+import { createInternalApiKeyMiddleware } from './middleware/internalApiKey.js';
 
 // Importă schema și resolver-ii
 import typeDefs from './api/schema.js';
@@ -239,9 +240,11 @@ async function initializeServer() {
 
     // Aplică middleware-urile de securitate adiționale
     const securityMiddlewares = createSecurityMiddleware();
+    const internalApiKeyMiddleware = createInternalApiKeyMiddleware();
 
     // Aplică middleware-urile la Express
     app.use('/graphql', 
+      internalApiKeyMiddleware,
       ...securityMiddlewares,
       authMiddleware,
       expressMiddleware(server, {
