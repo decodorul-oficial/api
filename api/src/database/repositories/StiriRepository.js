@@ -23,6 +23,31 @@ export class StiriRepository {
   }
 
   /**
+   * Returnează categoriile distincte cu numărul de știri
+   */
+  async getCategories({ limit = 100 } = {}) {
+    try {
+      const rpc = await this.publicSchema.rpc('get_categories', { p_limit: Number(limit) });
+      if (rpc.error) {
+        throw new GraphQLError(`Eroare la obținerea categoriilor: ${rpc.error.message}`, {
+          extensions: { code: 'DATABASE_ERROR' }
+        });
+      }
+      // Forma returnată de RPC este rows cu coloane name, count
+      return (rpc.data || []).map(row => ({
+        name: row.name,
+        count: Number(row.count) || 0
+      }));
+    } catch (error) {
+      if (error instanceof GraphQLError) {
+        throw error;
+      }
+      throw new GraphQLError('Eroare internă la obținerea categoriilor', {
+        extensions: { code: 'INTERNAL_ERROR' }
+      });
+    }
+  }
+  /**
    * Obține știrile cu paginare și filtrare
    * @param {Object} options - Opțiunile de paginare și filtrare
    * @param {number} options.limit - Numărul maxim de rezultate
@@ -56,6 +81,47 @@ export class StiriRepository {
         throw error;
       }
       throw new GraphQLError('Eroare internă la preluarea știrilor', {
+        extensions: { code: 'INTERNAL_ERROR' }
+      });
+    }
+  }
+
+  /**
+   * Obține știrile dintr-o categorie (content->>'category') cu paginare
+   * @param {Object} options
+   * @param {string} options.category - Categoria (case-insensitive)
+   * @param {number} options.limit - Numărul maxim de rezultate
+   * @param {number} options.offset - Offset-ul pentru paginare
+   * @param {string} options.orderBy - Câmpul pentru sortare
+   * @param {string} options.orderDirection - Direcția sortării (asc/desc)
+   */
+  async getStiriByCategory({ category, limit = 10, offset = 0, orderBy = 'publication_date', orderDirection = 'desc' } = {}) {
+    try {
+      // PostgREST nu suportă direct unaccent aici; folosim ILIKE pentru a permite cazuri insensibile
+      const { data, error, count } = await this.publicSchema
+        .from(this.tableName)
+        .select('*', { count: 'exact' })
+        .filter('content->>category', 'ilike', category)
+        .order(orderBy, { ascending: orderDirection === 'asc' })
+        .range(offset, offset + limit - 1);
+
+      if (error) {
+        throw new GraphQLError(`Eroare la preluarea știrilor pe categorie: ${error.message}`, {
+          extensions: { code: 'DATABASE_ERROR' }
+        });
+      }
+
+      return {
+        stiri: data || [],
+        totalCount: count || 0,
+        hasNextPage: (offset + limit) < (count || 0),
+        hasPreviousPage: offset > 0
+      };
+    } catch (error) {
+      if (error instanceof GraphQLError) {
+        throw error;
+      }
+      throw new GraphQLError('Eroare internă la preluarea știrilor pe categorie', {
         extensions: { code: 'INTERNAL_ERROR' }
       });
     }

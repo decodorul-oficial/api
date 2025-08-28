@@ -156,6 +156,30 @@ export function createResolvers(services) {
         }
       },
 
+      // Știri după categorie (content.category)
+      getStiriByCategory: async (parent, args, context) => {
+        try {
+          const { category, limit, offset, orderBy, orderDirection } = args || {};
+          const normalizedArgs = {
+            limit,
+            offset,
+            orderBy: orderBy === 'publicationDate'
+              ? 'publication_date'
+              : orderBy === 'createdAt'
+                ? 'created_at'
+                : orderBy,
+            orderDirection
+          };
+          const validatedArgs = validateGraphQLData(normalizedArgs, paginationSchema);
+          return await stiriService.getStiriByCategory({
+            category,
+            ...validatedArgs
+          });
+        } catch (error) {
+          throw error;
+        }
+      },
+
       // Căutare îmbunătățită cu suport pentru fuzzy/full-text search + keywords + filtrare dată
       searchStiriByKeywords: async (parent, args, context) => {
         try {
@@ -205,6 +229,16 @@ export function createResolvers(services) {
       topTopics: async (parent, { limit }, context) => {
         try {
           return await stiriService.getTopTopics({ limit });
+        } catch (error) {
+          throw error;
+        }
+      },
+
+      // Categorii distincte pentru meniu
+      getCategories: async (parent, { limit }, context) => {
+        try {
+          const safeLimit = typeof limit === 'number' && limit > 0 ? limit : 100;
+          return await stiriService.getCategories({ limit: safeLimit });
         } catch (error) {
           throw error;
         }

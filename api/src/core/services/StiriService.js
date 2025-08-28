@@ -43,6 +43,75 @@ export class StiriService {
   }
 
   /**
+   * Returnează categoriile distincte cu numărul de știri
+   */
+  async getCategories({ limit = 100 } = {}) {
+    try {
+      const normalizedLimit = typeof limit === 'number' && limit > 0 ? Math.min(limit, 500) : 100;
+      const rows = await this.stiriRepository.getCategories({ limit: normalizedLimit });
+      return rows.map(r => ({ name: r.name, count: r.count }));
+    } catch (error) {
+      if (error instanceof GraphQLError) {
+        throw error;
+      }
+      throw new GraphQLError('Eroare internă la obținerea categoriilor', {
+        extensions: { code: 'INTERNAL_ERROR' }
+      });
+    }
+  }
+
+  /**
+   * Obține știrile dintr-o categorie cu paginare
+   */
+  async getStiriByCategory({ category, limit = validationConfig.defaultStiriLimit, offset = 0, orderBy = 'publication_date', orderDirection = 'desc' } = {}) {
+    try {
+      const normalizedCategory = typeof category === 'string' ? category.trim() : '';
+      if (!normalizedCategory || normalizedCategory.length < 2) {
+        throw new GraphQLError('Categoria este invalidă sau prea scurtă', {
+          extensions: { code: 'VALIDATION_ERROR' }
+        });
+      }
+
+      const validatedOptions = {
+        limit: typeof limit === 'number' && limit > 0 && limit <= validationConfig.maxStiriLimit
+          ? limit
+          : validationConfig.defaultStiriLimit,
+        offset: typeof offset === 'number' && offset >= 0 ? offset : 0,
+        orderBy: ['id', 'title', 'publication_date', 'created_at'].includes(orderBy) ? orderBy : 'publication_date',
+        orderDirection: orderDirection === 'asc' ? 'asc' : 'desc'
+      };
+
+      const result = await this.stiriRepository.getStiriByCategory({
+        category: normalizedCategory,
+        ...validatedOptions
+      });
+
+      return {
+        stiri: result.stiri.map(stire => this.transformStireForGraphQL(stire)),
+        pagination: {
+          totalCount: result.totalCount,
+          hasNextPage: result.hasNextPage,
+          hasPreviousPage: result.hasPreviousPage,
+          currentPage: Math.floor(validatedOptions.offset / validatedOptions.limit) + 1,
+          totalPages: Math.ceil(result.totalCount / validatedOptions.limit)
+        }
+      };
+    } catch (error) {
+      if (error instanceof GraphQLError) {
+        throw error;
+      }
+      if (error instanceof z.ZodError) {
+        throw new GraphQLError(`Eroare de validare: ${error.errors[0].message}`, {
+          extensions: { code: 'VALIDATION_ERROR' }
+        });
+      }
+      throw new GraphQLError('Eroare internă la preluarea știrilor pe categorie', {
+        extensions: { code: 'INTERNAL_ERROR' }
+      });
+    }
+  }
+
+  /**
    * Obține știrile cu paginare și filtrare
    * @param {Object} options - Opțiunile de paginare și filtrare
    * @param {number} options.limit - Numărul maxim de rezultate

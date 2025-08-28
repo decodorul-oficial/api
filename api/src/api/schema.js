@@ -76,6 +76,11 @@ export const typeDefs = `#graphql
     stiri: [Stire!]!
   }
 
+  type CategoryCount {
+    name: String!
+    count: Int!
+  }
+
   type RequestLog {
     id: ID!
     userId: ID!
@@ -173,9 +178,19 @@ export const typeDefs = `#graphql
       orderDirection: String
     ): StiriResponse!
 
+    # Pagina de categorie: listează știrile după content.category
+    getStiriByCategory(
+      category: String!
+      limit: Int
+      offset: Int
+      orderBy: String
+      orderDirection: String
+    ): StiriResponse!
+
     # Analytics de bază
     topEntities(limit: Int): JSON!
     topTopics(limit: Int): JSON!
+    getCategories(limit: Int): [CategoryCount!]!
 
     # Query-uri pentru utilizatori
     me: User
