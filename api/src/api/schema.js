@@ -78,6 +78,7 @@ export const typeDefs = `#graphql
 
   type CategoryCount {
     name: String!
+    slug: String!
     count: Int!
   }
 
@@ -191,6 +192,15 @@ export const typeDefs = `#graphql
     topEntities(limit: Int): JSON!
     topTopics(limit: Int): JSON!
     getCategories(limit: Int): [CategoryCount!]!
+
+    # Pagini de categorii (filtrare strictă pe slug)
+    getStiriByCategorySlug(
+      slug: String!
+      limit: Int
+      offset: Int
+      orderBy: String
+      orderDirection: String
+    ): StiriResponse!
 
     # Query-uri pentru utilizatori
     me: User

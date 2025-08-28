@@ -244,6 +244,27 @@ export function createResolvers(services) {
         }
       },
 
+      // Știri după slug de categorie
+      getStiriByCategorySlug: async (parent, args, context) => {
+        try {
+          const { slug, limit, offset, orderBy, orderDirection } = args || {};
+          const normalizedArgs = {
+            limit,
+            offset,
+            orderBy: orderBy === 'publicationDate'
+              ? 'publication_date'
+              : orderBy === 'createdAt'
+                ? 'created_at'
+                : orderBy,
+            orderDirection
+          };
+          const validatedArgs = validateGraphQLData(normalizedArgs, paginationSchema);
+          return await stiriService.getStiriByCategorySlug({ slug, ...validatedArgs });
+        } catch (error) {
+          throw error;
+        }
+      },
+
       // Query-uri pentru utilizatori
       me: async (parent, args, context) => {
         try {

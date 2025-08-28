@@ -49,12 +49,56 @@ export class StiriService {
     try {
       const normalizedLimit = typeof limit === 'number' && limit > 0 ? Math.min(limit, 500) : 100;
       const rows = await this.stiriRepository.getCategories({ limit: normalizedLimit });
-      return rows.map(r => ({ name: r.name, count: r.count }));
+      return rows.map(r => ({ name: r.name, slug: r.slug, count: r.count }));
     } catch (error) {
       if (error instanceof GraphQLError) {
         throw error;
       }
       throw new GraphQLError('Eroare internă la obținerea categoriilor', {
+        extensions: { code: 'INTERNAL_ERROR' }
+      });
+    }
+  }
+
+  /**
+   * Știri după slug de categorie
+   */
+  async getStiriByCategorySlug({ slug, limit = validationConfig.defaultStiriLimit, offset = 0, orderBy = 'publication_date', orderDirection = 'desc' } = {}) {
+    try {
+      const normalizedSlug = typeof slug === 'string' ? slug.trim().toLowerCase() : '';
+      if (!normalizedSlug || normalizedSlug.length < 2) {
+        throw new GraphQLError('Slug invalid sau prea scurt', { extensions: { code: 'VALIDATION_ERROR' } });
+      }
+
+      const validatedOptions = {
+        limit: typeof limit === 'number' && limit > 0 && limit <= validationConfig.maxStiriLimit
+          ? limit
+          : validationConfig.defaultStiriLimit,
+        offset: typeof offset === 'number' && offset >= 0 ? offset : 0,
+        orderBy: ['id', 'title', 'publication_date', 'created_at'].includes(orderBy) ? orderBy : 'publication_date',
+        orderDirection: orderDirection === 'asc' ? 'asc' : 'desc'
+      };
+
+      const result = await this.stiriRepository.getStiriByCategorySlug({
+        slug: normalizedSlug,
+        ...validatedOptions
+      });
+
+      return {
+        stiri: result.stiri.map(stire => this.transformStireForGraphQL(stire)),
+        pagination: {
+          totalCount: result.totalCount,
+          hasNextPage: result.hasNextPage,
+          hasPreviousPage: result.hasPreviousPage,
+          currentPage: Math.floor(validatedOptions.offset / validatedOptions.limit) + 1,
+          totalPages: Math.ceil(result.totalCount / validatedOptions.limit)
+        }
+      };
+    } catch (error) {
+      if (error instanceof GraphQLError) {
+        throw error;
+      }
+      throw new GraphQLError('Eroare internă la preluarea știrilor după slug', {
         extensions: { code: 'INTERNAL_ERROR' }
       });
     }

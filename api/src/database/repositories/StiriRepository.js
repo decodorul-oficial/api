@@ -36,6 +36,7 @@ export class StiriRepository {
       // Forma returnată de RPC este rows cu coloane name, count
       return (rpc.data || []).map(row => ({
         name: row.name,
+        slug: row.slug,
         count: Number(row.count) || 0
       }));
     } catch (error) {
@@ -43,6 +44,41 @@ export class StiriRepository {
         throw error;
       }
       throw new GraphQLError('Eroare internă la obținerea categoriilor', {
+        extensions: { code: 'INTERNAL_ERROR' }
+      });
+    }
+  }
+
+  /**
+   * Știri după slug de categorie (RPC paginat)
+   */
+  async getStiriByCategorySlug({ slug, limit = 10, offset = 0, orderBy = 'publication_date', orderDirection = 'desc' } = {}) {
+    try {
+      const rpc = await this.publicSchema.rpc('stiri_by_category_slug', {
+        p_slug: slug,
+        p_limit: limit,
+        p_offset: offset,
+        p_order_by: orderBy,
+        p_order_dir: orderDirection
+      });
+      if (rpc.error) {
+        throw new GraphQLError(`Eroare la preluarea știrilor după slug: ${rpc.error.message}`, {
+          extensions: { code: 'DATABASE_ERROR' }
+        });
+      }
+      const data = rpc.data?.items || [];
+      const count = rpc.data?.total_count || data.length || 0;
+      return {
+        stiri: data,
+        totalCount: count,
+        hasNextPage: (offset + limit) < count,
+        hasPreviousPage: offset > 0
+      };
+    } catch (error) {
+      if (error instanceof GraphQLError) {
+        throw error;
+      }
+      throw new GraphQLError('Eroare internă la preluarea știrilor după slug de categorie', {
         extensions: { code: 'INTERNAL_ERROR' }
       });
     }
