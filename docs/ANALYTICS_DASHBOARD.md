@@ -173,13 +173,13 @@ WHERE publication_date >= p_start_date
 ```sql
 -- Activitatea pe zile
 SELECT 
-  publication_date::TEXT as date,
+  date_trunc('day', publication_date)::TEXT as date,
   COUNT(*)::BIGINT as value
 FROM public.stiri s
 WHERE publication_date >= p_start_date 
   AND publication_date <= p_end_date
-GROUP BY publication_date
-ORDER BY publication_date ASC
+GROUP BY date_trunc('day', publication_date)
+ORDER BY date_trunc('day', publication_date) ASC
 ```
 
 #### get_top_active_ministries(p_start_date, p_end_date, p_limit)
@@ -384,14 +384,40 @@ class AnalyticsPeriods {
 - **Query Complex** (1 an): ~500ms-1s  
 - **Query Maxim** (2 ani): ~1-2s
 
+## Corectări și Îmbunătățiri
+
+### Corectarea Grupării Temporale (Migrația 023)
+
+**Problema identificată**: Implementarea inițială folosea `GROUP BY s.publication_date` care nu asigura agregarea corectă pe zi calendaristică.
+
+**Soluția implementată**: Folosirea `date_trunc('day', s.publication_date)` pentru gruparea corectă pe zi.
+
+**Înainte (incorect)**:
+```sql
+GROUP BY s.publication_date
+ORDER BY s.publication_date ASC
+```
+
+**După (corect)**:
+```sql
+GROUP BY date_trunc('day', s.publication_date)
+ORDER BY date_trunc('day', s.publication_date) ASC
+```
+
+**Beneficiul**: Asigură că datele sunt grupate corect pe zi calendaristică, nu pe timestamp exact.
+
 ## Instrucțiuni de Instalare
 
-### 1. Aplicarea Migrației
+### 1. Aplicarea Migrațiilor
 
 Execută în Supabase SQL Editor:
 
 ```sql
+-- 1. Funcții principale pentru analytics
 -- Execută conținutul din database/migrations/022_analytics_dashboard_functions.sql
+
+-- 2. Corectarea grupării temporale (IMPORTANT!)
+-- Execută conținutul din database/migrations/023_fix_temporal_grouping.sql
 ```
 
 ### 2. Verificarea Funcțiilor

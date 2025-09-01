@@ -39,18 +39,18 @@ AS $$
 BEGIN
   RETURN QUERY
   SELECT 
-    s.publication_date::TEXT as date,
+    date_trunc('day', s.publication_date)::TEXT as date,
     COUNT(*)::BIGINT as value
   FROM public.stiri s
   WHERE s.publication_date >= p_start_date
     AND s.publication_date <= p_end_date
-  GROUP BY s.publication_date
-  ORDER BY s.publication_date ASC;
+  GROUP BY date_trunc('day', s.publication_date)
+  ORDER BY date_trunc('day', s.publication_date) ASC;
 END;
 $$;
 
 COMMENT ON FUNCTION public.get_legislative_activity_over_time(DATE, DATE)
-IS 'Returnează numărul de acte publicate pe fiecare zi din intervalul specificat';
+IS 'Returnează numărul de acte publicate pe fiecare zi din intervalul specificat, folosind date_trunc pentru agregare corectă pe zi calendaristică';
 
 -- 3. Funcție pentru top ministere/instituții active
 CREATE OR REPLACE FUNCTION public.get_top_active_ministries(
