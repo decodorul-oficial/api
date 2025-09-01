@@ -52,6 +52,12 @@ query GetRelatedStories($storyId: ID!, $limit: Int, $minScore: Float) {
       id
       title
       publicationDate
+      content
+      topics
+      entities
+      createdAt
+      filename
+      viewCount
       category
       relevanceScore
       relevanceReasons {
@@ -114,10 +120,13 @@ const relatedStories = await getRelatedStories(709, 5, 1.0);
 
 ## Beneficii
 
-1. **Navigare Îmbunătățită**: Utilizatorii pot descoperi ușor știri conexe
+1. **Navigare Îmbunătățită**: Utilizatorii pot descoperi ușor știri conexe cu conținut complet
 2. **Context Legal**: Identifică modificări și legături între acte normative
 3. **Monitorizare Domenii**: Urmărirea completă a unui domeniu de reglementare
 4. **Experiență Utilizator**: Reducerea timpului de căutare manuală
+5. **Performanță Optimizată**: Un singur request returnează toate informațiile necesare
+6. **Preview Conținut**: Afișarea directă a rezumatului și metadatelor fără requesturi suplimentare
+7. **Informații Complete**: Access la entities, topics, keywords pentru filtrare avansată în frontend
 
 ## Integrare Frontend
 
@@ -152,19 +161,35 @@ function RelatedStories({ storyId }) {
       {relatedStories.map(story => (
         <div key={story.id} className="related-story">
           <h4>{story.title}</h4>
-          <div className="relevance-score">
-            Scor: {story.relevanceScore}
+          <div className="story-meta">
+            <span className="publication-date">{story.publicationDate}</span>
+            <span className="category">{story.category}</span>
+            <span className="views">{story.viewCount} vizualizări</span>
           </div>
-          <div className="relevance-reasons">
-            {story.relevanceReasons.common_legal_acts && (
-              <span>📋 Acte comune: {story.relevanceReasons.common_legal_acts.join(', ')}</span>
-            )}
-            {story.relevanceReasons.common_organizations && (
-              <span>🏛️ Organizații comune: {story.relevanceReasons.common_organizations.join(', ')}</span>
-            )}
-            {story.relevanceReasons.same_category && (
-              <span>📂 Aceeași categorie</span>
-            )}
+          
+          {/* Afișează un preview din conținut */}
+          <div className="story-preview">
+            <p>{story.content?.summary || 'Nu există rezumat disponibil'}</p>
+          </div>
+          
+          <div className="relevance-info">
+            <div className="relevance-score">
+              Scor relevanță: {story.relevanceScore}
+            </div>
+            <div className="relevance-reasons">
+              {story.relevanceReasons.common_legal_acts && story.relevanceReasons.common_legal_acts.length > 0 && (
+                <span className="reason">📋 Acte comune: {story.relevanceReasons.common_legal_acts.join(', ')}</span>
+              )}
+              {story.relevanceReasons.common_organizations && story.relevanceReasons.common_organizations.length > 0 && (
+                <span className="reason">🏛️ Organizații comune: {story.relevanceReasons.common_organizations.join(', ')}</span>
+              )}
+              {story.relevanceReasons.common_keywords && story.relevanceReasons.common_keywords.length > 0 && (
+                <span className="reason">🔑 Keywords comune: {story.relevanceReasons.common_keywords.join(', ')}</span>
+              )}
+              {story.relevanceReasons.same_category && (
+                <span className="reason">📂 Aceeași categorie</span>
+              )}
+            </div>
           </div>
         </div>
       ))}

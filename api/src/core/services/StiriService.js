@@ -636,7 +636,25 @@ export class StiriService {
         minScore: safeMinScore
       });
 
-      return relatedStories;
+      // Obține informații complete pentru fiecare știre relacionată
+      const enrichedStories = await Promise.all(
+        relatedStories.map(async (relatedStory) => {
+          const fullStory = await this.stiriRepository.getStireById(relatedStory.id);
+          if (!fullStory) {
+            return null; // Skip dacă știrea nu mai există
+          }
+          
+          return {
+            ...fullStory,
+            relevance_score: relatedStory.relevance_score,
+            relevance_reasons: relatedStory.relevance_reasons,
+            category: relatedStory.category
+          };
+        })
+      );
+
+      // Filtrează din rezultate știrile care nu au fost găsite
+      return enrichedStories.filter(story => story !== null);
     } catch (error) {
       if (error instanceof GraphQLError) {
         throw error;

@@ -392,6 +392,12 @@ export function createResolvers(services) {
               id: story.id,
               title: story.title,
               publicationDate: story.publication_date,
+              content: story.content,
+              topics: story.topics,
+              entities: story.entities,
+              createdAt: story.created_at,
+              filename: story.filename,
+              viewCount: story.view_count || 0,
               category: story.category,
               relevanceScore: parseFloat(story.relevance_score),
               relevanceReasons: story.relevance_reasons
