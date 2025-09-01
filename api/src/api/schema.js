@@ -81,8 +81,6 @@ export const typeDefs = `#graphql
     title: String!
     publicationDate: String!
     content: JSON!
-    topics: JSON
-    entities: JSON
     createdAt: String!
     filename: String
     viewCount: Int!

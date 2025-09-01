@@ -52,9 +52,7 @@ query GetRelatedStories($storyId: ID!, $limit: Int, $minScore: Float) {
       id
       title
       publicationDate
-      content
-      topics
-      entities
+      content          # Fără content.body - doar metadata (summary, category, keywords, etc.)
       createdAt
       filename
       viewCount
@@ -126,7 +124,7 @@ const relatedStories = await getRelatedStories(709, 5, 1.0);
 4. **Experiență Utilizator**: Reducerea timpului de căutare manuală
 5. **Performanță Optimizată**: Un singur request returnează toate informațiile necesare
 6. **Preview Conținut**: Afișarea directă a rezumatului și metadatelor fără requesturi suplimentare
-7. **Informații Complete**: Access la entities, topics, keywords pentru filtrare avansată în frontend
+7. **Date Optimizate**: Returnează doar informațiile esențiale (fără content.body, topics, entities) pentru performanță îmbunătățită
 
 ## Integrare Frontend
 
@@ -167,9 +165,14 @@ function RelatedStories({ storyId }) {
             <span className="views">{story.viewCount} vizualizări</span>
           </div>
           
-          {/* Afișează un preview din conținut */}
+          {/* Afișează un preview din conținut - fără body, doar summary/metadata */}
           <div className="story-preview">
             <p>{story.content?.summary || 'Nu există rezumat disponibil'}</p>
+            {story.content?.keywords && (
+              <div className="keywords">
+                Keywords: {story.content.keywords.join(', ')}
+              </div>
+            )}
           </div>
           
           <div className="relevance-info">

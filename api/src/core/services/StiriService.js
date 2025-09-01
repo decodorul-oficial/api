@@ -644,8 +644,15 @@ export class StiriService {
             return null; // Skip dacă știrea nu mai există
           }
           
+          // Exclude topics, entities și content.body din răspuns
+          const { topics, entities, ...storyWithoutExcluded } = fullStory;
+          const contentWithoutBody = fullStory.content ? 
+            { ...fullStory.content, body: undefined } : 
+            fullStory.content;
+          
           return {
-            ...fullStory,
+            ...storyWithoutExcluded,
+            content: contentWithoutBody,
             relevance_score: relatedStory.relevance_score,
             relevance_reasons: relatedStory.relevance_reasons,
             category: relatedStory.category

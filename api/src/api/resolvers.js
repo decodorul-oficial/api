@@ -393,8 +393,6 @@ export function createResolvers(services) {
               title: story.title,
               publicationDate: story.publication_date,
               content: story.content,
-              topics: story.topics,
-              entities: story.entities,
               createdAt: story.created_at,
               filename: story.filename,
               viewCount: story.view_count || 0,
