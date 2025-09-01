@@ -595,6 +595,59 @@ export class StiriService {
   }
 
   /**
+   * Obține știrile relevante pentru o știre dată
+   * @param {Object} params - Parametrii pentru căutarea știrilor relevante
+   * @param {string|number} params.storyId - ID-ul știrii pentru care căutăm știri relevante
+   * @param {number} params.limit - Numărul maxim de știri de returnat (default: 5)
+   * @param {number} params.minScore - Scorul minim de relevanță (default: 1.0)
+   * @returns {Promise<Array>} Lista de știri relevante cu scorurile de relevanță
+   */
+  async getRelatedStories({ storyId, limit = 5, minScore = 1.0 }) {
+    try {
+      // Validează parametrii
+      if (!storyId) {
+        throw new GraphQLError('ID-ul știrii este obligatoriu', {
+          extensions: { code: 'VALIDATION_ERROR' }
+        });
+      }
+
+      const numericId = Number(storyId);
+      if (isNaN(numericId) || numericId <= 0) {
+        throw new GraphQLError('ID invalid pentru știre', {
+          extensions: { code: 'VALIDATION_ERROR' }
+        });
+      }
+
+      const safeLimit = Math.min(Math.max(1, Number(limit) || 5), 20); // Entre 1 și 20
+      const safeMinScore = Number(minScore) || 0.5;
+
+      // Verifică dacă știrea exists
+      const targetStory = await this.stiriRepository.getStireById(numericId);
+      if (!targetStory) {
+        throw new GraphQLError('Știrea nu a fost găsită', {
+          extensions: { code: 'NOT_FOUND' }
+        });
+      }
+
+      // Apelează funcția de scoring din baza de date
+      const relatedStories = await this.stiriRepository.getRelatedStories({
+        storyId: numericId,
+        limit: safeLimit,
+        minScore: safeMinScore
+      });
+
+      return relatedStories;
+    } catch (error) {
+      if (error instanceof GraphQLError) {
+        throw error;
+      }
+      throw new GraphQLError('Eroare internă la obținerea știrilor relevante', {
+        extensions: { code: 'INTERNAL_ERROR' }
+      });
+    }
+  }
+
+  /**
    * Transformă o știre din formatul bazei de date în formatul GraphQL
    * @param {Object} stire - Știrea din baza de date
    * @returns {Object} Știrea în format GraphQL

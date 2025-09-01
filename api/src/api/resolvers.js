@@ -369,6 +369,37 @@ export function createResolvers(services) {
         } catch (error) {
           throw error;
         }
+      },
+
+      // Related Stories
+      getRelatedStories: async (parent, { storyId, limit, minScore }, context) => {
+        try {
+          // Validează ID-ul
+          const validatedId = validateGraphQLData(storyId, idSchema);
+          
+          // Setează valori default pentru parametrii opționali
+          const queryLimit = limit && limit > 0 ? Math.min(limit, 20) : 5; // Max 20 results
+          const queryMinScore = minScore !== undefined ? minScore : 1.0;
+          
+          const relatedStories = await stiriService.getRelatedStories({
+            storyId: validatedId,
+            limit: queryLimit,
+            minScore: queryMinScore
+          });
+          
+          return {
+            relatedStories: relatedStories.map(story => ({
+              id: story.id,
+              title: story.title,
+              publicationDate: story.publication_date,
+              category: story.category,
+              relevanceScore: parseFloat(story.relevance_score),
+              relevanceReasons: story.relevance_reasons
+            }))
+          };
+        } catch (error) {
+          throw error;
+        }
       }
     },
 

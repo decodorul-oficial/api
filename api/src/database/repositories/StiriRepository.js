@@ -501,6 +501,39 @@ export class StiriRepository {
       });
     }
   }
+
+  /**
+   * Obține știrile relevante pentru o știre dată folosind funcția SQL de scoring
+   * @param {Object} params - Parametrii pentru căutarea știrilor relevante
+   * @param {number} params.storyId - ID-ul știrii pentru care căutăm știri relevante
+   * @param {number} params.limit - Numărul maxim de știri de returnat (default: 5)
+   * @param {number} params.minScore - Scorul minim de relevanță (default: 1.0)
+   * @returns {Promise<Array>} Lista de știri relevante cu scorurile de relevanță
+   */
+  async getRelatedStories({ storyId, limit = 5, minScore = 1.0 }) {
+    try {
+      const { data, error } = await this.publicSchema.rpc('get_related_stories', {
+        target_story_id: storyId,
+        limit_count: limit,
+        min_score: minScore
+      });
+
+      if (error) {
+        throw new GraphQLError(`Eroare la obținerea știrilor relevante: ${error.message}`, {
+          extensions: { code: 'DATABASE_ERROR' }
+        });
+      }
+
+      return data || [];
+    } catch (error) {
+      if (error instanceof GraphQLError) {
+        throw error;
+      }
+      throw new GraphQLError('Eroare internă la obținerea știrilor relevante', {
+        extensions: { code: 'INTERNAL_ERROR' }
+      });
+    }
+  }
 }
 
 export default StiriRepository;

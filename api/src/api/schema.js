@@ -76,6 +76,19 @@ export const typeDefs = `#graphql
     stiri: [Stire!]!
   }
 
+  type RelatedStory {
+    id: ID!
+    title: String!
+    publicationDate: String!
+    category: String
+    relevanceScore: Float!
+    relevanceReasons: JSON
+  }
+
+  type RelatedStoriesResponse {
+    relatedStories: [RelatedStory!]!
+  }
+
   type CategoryCount {
     name: String!
     slug: String!
@@ -221,6 +234,13 @@ export const typeDefs = `#graphql
 
     # Daily Syntheses
     getDailySynthesis(date: String!): DailySynthesis
+
+    # Related Stories
+    getRelatedStories(
+      storyId: ID!
+      limit: Int
+      minScore: Float
+    ): RelatedStoriesResponse!
   }
 
   # Mutații
