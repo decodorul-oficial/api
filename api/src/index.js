@@ -84,12 +84,14 @@ import StiriRepository from './database/repositories/StiriRepository.js';
 import UserRepository from './database/repositories/UserRepository.js';
 import NewsletterRepository from './database/repositories/NewsletterRepository.js';
 import DailySynthesesRepository from './database/repositories/DailySynthesesRepository.js';
+import AnalyticsRepository from './database/repositories/AnalyticsRepository.js';
 
 // Importă serviciile
 import UserService from './core/services/UserService.js';
 import StiriService from './core/services/StiriService.js';
 import NewsletterService from './core/services/NewsletterService.js';
 import DailySynthesesService from './core/services/DailySynthesesService.js';
+import AnalyticsService from './core/services/AnalyticsService.js';
 
 // Importă middleware-urile
 import { createAuthMiddleware } from './middleware/auth.js';
@@ -158,15 +160,17 @@ async function initializeServer() {
     const userRepository = new UserRepository(serviceClient);
     const newsletterRepository = new NewsletterRepository(serviceClient);
     const dailySynthesesRepository = new DailySynthesesRepository(serviceClient);
+    const analyticsRepository = new AnalyticsRepository(serviceClient);
 
     // Inițializează serviciile (injectăm explicit clientul Supabase și repository-urile)
     const userService = new UserService(serviceClient, userRepository);
     const stiriService = new StiriService(stiriRepository);
     const newsletterService = new NewsletterService(newsletterRepository);
     const dailySynthesesService = new DailySynthesesService(dailySynthesesRepository);
+    const analyticsService = new AnalyticsService(analyticsRepository);
 
     // Creează resolver-ii
-    const resolvers = createResolvers({ userService, stiriService, userRepository, newsletterService, dailySynthesesService });
+    const resolvers = createResolvers({ userService, stiriService, userRepository, newsletterService, dailySynthesesService, analyticsService });
 
     // Configurează serverul Apollo
     server = new ApolloServer({

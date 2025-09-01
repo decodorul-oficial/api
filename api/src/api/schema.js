@@ -121,6 +121,26 @@ export const typeDefs = `#graphql
     tierName: String!
   }
 
+  # Analytics types
+  type AnalyticsDataPoint {
+    label: String!
+    value: Int!
+  }
+
+  type TimeDataPoint {
+    date: String!
+    value: Int!
+  }
+
+  type AnalyticsDashboard {
+    totalActs: Int!
+    legislativeActivityOverTime: [TimeDataPoint!]!
+    topActiveMinistries: [AnalyticsDataPoint!]!
+    distributionByCategory: [AnalyticsDataPoint!]!
+    topKeywords: [AnalyticsDataPoint!]!
+    topMentionedLaws: [AnalyticsDataPoint!]!
+  }
+
   # Input types pentru mutații
   input SignUpInput {
     email: String!
@@ -245,6 +265,12 @@ export const typeDefs = `#graphql
       limit: Int
       minScore: Float
     ): RelatedStoriesResponse!
+
+    # Analytics Dashboard
+    getAnalyticsDashboard(
+      startDate: String!
+      endDate: String!
+    ): AnalyticsDashboard!
   }
 
   # Mutații
