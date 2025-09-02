@@ -99,6 +99,34 @@ export const typeDefs = `#graphql
     count: Int!
   }
 
+  # Tipuri pentru analiza de rețea a conexiunilor legislative
+  type LegislativeNode {
+    id: ID!
+    title: String!
+    publicationDate: String!
+    type: String!
+  }
+
+  type LegislativeLink {
+    source: ID!
+    target: ID!
+    type: String!
+    confidence: Float!
+  }
+
+  type LegislativeGraph {
+    nodes: [LegislativeNode!]!
+    links: [LegislativeLink!]!
+  }
+
+  type LegislativeConnectionStats {
+    totalConnections: Int!
+    connectionsByType: JSON!
+    topSourceDocuments: JSON!
+    topTargetDocuments: JSON!
+    averageConfidence: Float!
+  }
+
   type RequestLog {
     id: ID!
     userId: ID!
@@ -271,6 +299,15 @@ export const typeDefs = `#graphql
       startDate: String!
       endDate: String!
     ): AnalyticsDashboard!
+
+    # Analiza de rețea a conexiunilor legislative
+    getLegislativeGraph(
+      documentId: ID!
+      depth: Int
+    ): LegislativeGraph!
+
+    # Statistici despre conexiunile legislative
+    getLegislativeConnectionStats: LegislativeConnectionStats!
   }
 
   # Mutații

@@ -54,6 +54,13 @@ api/src/
 - Indexuri optimizate în baza de date
 - Logarea asincronă a cererilor
 
+### 🌐 Analiza de Rețea a Conexiunilor Legislative
+- **Harta Conexiunilor**: Vizualizarea relațiilor dintre acte normative
+- **Extragere Automată**: Conexiunile sunt extrase automat din conținutul știrilor
+- **Analiza de Rețea**: Înțelegerea ecosistemului legislativ ca întreg
+- **Statistici Avansate**: Metrici despre tipurile de conexiuni și documentele cele mai conectate
+- **API GraphQL**: Query-uri pentru obținerea graficelor de conexiuni cu adâncime configurată
+
 ## 📋 Cerințe
 
 - Node.js >= 18.0.0
@@ -92,6 +99,11 @@ ENABLE_GRAPHQL_UI=true
 - În Supabase Dashboard → Settings → Data API: Enable Data API, expune `public` în "Exposed schemas", Save și Restart API
 - Rulează scripturile SQL din `database/` în Supabase:
   - `database/schema.sql` sau migrațiile din `database/migrations/`
+  - **Migrațiile pentru conexiuni legislative** (obligatorii pentru funcționalitatea de rețea):
+    - `024_legislative_connections.sql` - Tabela și funcțiile de bază
+    - `025_legislative_connections_trigger.sql` - Trigger-uri automate
+    - `026_fix_legislative_graph_function.sql` - Corectarea funcției de grafic
+    - `027_fix_entity_field_reference.sql` - Corectarea referinței la entități
   - `database/seed.sql` - Date de test (opțional)
 - Dacă vezi erori PostgREST de tip `PGRST002`, rulează în SQL editor: `NOTIFY pgrst, 'reload schema';`
 
@@ -159,6 +171,41 @@ query Me {
       subscriptionTier
       createdAt
     }
+  }
+}
+```
+
+### 🌐 Analiza de Rețea a Conexiunilor Legislative
+
+#### Obținerea graficului de conexiuni
+```graphql
+query GetLegislativeGraph($documentId: ID!, $depth: Int) {
+  getLegislativeGraph(documentId: $documentId, depth: $depth) {
+    nodes {
+      id
+      title
+      publicationDate
+      type
+    }
+    links {
+      source
+      target
+      type
+      confidence
+    }
+  }
+}
+```
+
+#### Statistici despre conexiuni
+```graphql
+query GetLegislativeConnectionStats {
+  getLegislativeConnectionStats {
+    totalConnections
+    connectionsByType
+    topSourceDocuments
+    topTargetDocuments
+    averageConfidence
   }
 }
 ```

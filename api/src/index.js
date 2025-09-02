@@ -92,6 +92,7 @@ import StiriService from './core/services/StiriService.js';
 import NewsletterService from './core/services/NewsletterService.js';
 import DailySynthesesService from './core/services/DailySynthesesService.js';
 import AnalyticsService from './core/services/AnalyticsService.js';
+import LegislativeConnectionsService from './core/services/LegislativeConnectionsService.js';
 
 // Importă middleware-urile
 import { createAuthMiddleware } from './middleware/auth.js';
@@ -168,9 +169,10 @@ async function initializeServer() {
     const newsletterService = new NewsletterService(newsletterRepository);
     const dailySynthesesService = new DailySynthesesService(dailySynthesesRepository);
     const analyticsService = new AnalyticsService(analyticsRepository);
+    const legislativeConnectionsService = new LegislativeConnectionsService(serviceClient);
 
     // Creează resolver-ii
-    const resolvers = createResolvers({ userService, stiriService, userRepository, newsletterService, dailySynthesesService, analyticsService });
+    const resolvers = createResolvers({ userService, stiriService, userRepository, newsletterService, dailySynthesesService, analyticsService, legislativeConnectionsService });
 
     // Configurează serverul Apollo
     server = new ApolloServer({

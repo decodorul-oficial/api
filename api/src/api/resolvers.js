@@ -71,7 +71,7 @@ const typeResolvers = {
  * @returns {Object} Resolver-ii GraphQL
  */
 export function createResolvers(services) {
-  const { userService, stiriService, userRepository, newsletterService, dailySynthesesService, analyticsService } = services;
+  const { userService, stiriService, userRepository, newsletterService, dailySynthesesService, analyticsService, legislativeConnectionsService } = services;
 
   return {
     ...scalarResolvers,
@@ -410,6 +410,32 @@ export function createResolvers(services) {
       getAnalyticsDashboard: async (parent, { startDate, endDate }, context) => {
         try {
           return await analyticsService.getDashboardData(startDate, endDate);
+        } catch (error) {
+          throw error;
+        }
+      },
+
+      // Analiza de rețea a conexiunilor legislative
+      getLegislativeGraph: async (parent, { documentId, depth }, context) => {
+        try {
+          // Validează ID-ul documentului
+          const validatedId = validateGraphQLData(documentId, idSchema);
+          
+          // LIMITARE STRICTĂ DE SECURITATE: Adâncimea maximă este 3
+          // Aceasta previne interogări extrem de complexe care pot bloca serviciul
+          const MAX_DEPTH = 3;
+          const queryDepth = depth && depth > 0 ? Math.min(depth, MAX_DEPTH) : 1;
+          
+          return await legislativeConnectionsService.getLegislativeGraph(validatedId, queryDepth);
+        } catch (error) {
+          throw error;
+        }
+      },
+
+      // Statistici despre conexiunile legislative
+      getLegislativeConnectionStats: async (parent, args, context) => {
+        try {
+          return await legislativeConnectionsService.getLegislativeConnectionStats();
         } catch (error) {
           throw error;
         }
