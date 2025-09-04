@@ -24,6 +24,7 @@ export const typeDefs = `#graphql
     filename: String
     viewCount: Int!
     predictedViews: Int
+    category: String
   }
 
   type UserPreferences {

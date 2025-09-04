@@ -301,7 +301,7 @@ export class UserRepository {
     try {
       const { limit = 10, offset = 0, orderBy = 'publication_date', orderDirection = 'desc' } = options;
       
-      const { data, error } = await this.supabase.rpc('get_personalized_stiri', {
+      const { data, error } = await this.supabase.rpc('get_personalized_stiri_with_category', {
         user_uuid: userId,
         p_limit: limit,
         p_offset: offset,

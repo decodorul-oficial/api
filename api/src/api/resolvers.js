@@ -68,7 +68,8 @@ const typeResolvers = {
     createdAt: (parent) => parent.createdAt,
     updatedAt: (parent) => parent.updatedAt,
     filename: (parent) => parent.filename,
-    viewCount: (parent) => parent.viewCount
+    viewCount: (parent) => parent.viewCount,
+    category: (parent) => parent.category
   },
 
   RequestLog: {
