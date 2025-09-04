@@ -19,6 +19,7 @@ export class UserRepository {
     this.supabase = supabaseClient;
     this.profilesTable = 'profiles';
     this.usageLogsTable = 'usage_logs';
+    this.userPreferencesTable = 'user_preferences';
   }
 
   /**
@@ -211,6 +212,122 @@ export class UserRepository {
         throw error;
       }
       throw new GraphQLError('Eroare internă la preluarea istoricului', {
+        extensions: { code: 'INTERNAL_ERROR' }
+      });
+    }
+  }
+
+  /**
+   * Obține preferințele unui utilizator
+   * @param {string} userId - ID-ul utilizatorului
+   * @returns {Promise<Object|null>} Preferințele utilizatorului sau null dacă nu există
+   */
+  async getUserPreferences(userId) {
+    try {
+      const { data, error } = await this.supabase
+        .from(this.userPreferencesTable)
+        .select('*')
+        .eq('id', userId)
+        .single();
+
+      if (error) {
+        if (error.code === 'PGRST116') {
+          return null; // Nu s-au găsit preferințele
+        }
+        throw new GraphQLError(`Eroare la preluarea preferințelor: ${error.message}`, {
+          extensions: { code: 'DATABASE_ERROR' }
+        });
+      }
+
+      return data;
+    } catch (error) {
+      if (error instanceof GraphQLError) {
+        throw error;
+      }
+      throw new GraphQLError('Eroare internă la preluarea preferințelor', {
+        extensions: { code: 'INTERNAL_ERROR' }
+      });
+    }
+  }
+
+  /**
+   * Actualizează preferințele unui utilizator
+   * @param {string} userId - ID-ul utilizatorului
+   * @param {Object} preferences - Preferințele de actualizat
+   * @param {Array} preferences.preferredCategories - Categoriile preferate
+   * @param {Object} preferences.notificationSettings - Setările de notificare
+   * @returns {Promise<Object>} Preferințele actualizate
+   */
+  async updateUserPreferences(userId, preferences) {
+    try {
+      const { data, error } = await this.supabase
+        .from(this.userPreferencesTable)
+        .upsert({
+          id: userId,
+          preferred_categories: preferences.preferredCategories || [],
+          notification_settings: preferences.notificationSettings || {}
+        }, { onConflict: 'id' })
+        .select()
+        .single();
+
+      if (error) {
+        throw new GraphQLError(`Eroare la actualizarea preferințelor: ${error.message}`, {
+          extensions: { code: 'DATABASE_ERROR' }
+        });
+      }
+
+      return data;
+    } catch (error) {
+      if (error instanceof GraphQLError) {
+        throw error;
+      }
+      throw new GraphQLError('Eroare internă la actualizarea preferințelor', {
+        extensions: { code: 'INTERNAL_ERROR' }
+      });
+    }
+  }
+
+  /**
+   * Obține știrile personalizate pentru un utilizator
+   * @param {string} userId - ID-ul utilizatorului
+   * @param {Object} options - Opțiunile de paginare și sortare
+   * @param {number} options.limit - Numărul maxim de rezultate
+   * @param {number} options.offset - Offset-ul pentru paginare
+   * @param {string} options.orderBy - Câmpul pentru sortare
+   * @param {string} options.orderDirection - Direcția sortării
+   * @returns {Promise<Object>} Știrile personalizate cu paginare
+   */
+  async getPersonalizedStiri(userId, options = {}) {
+    try {
+      const { limit = 10, offset = 0, orderBy = 'publication_date', orderDirection = 'desc' } = options;
+      
+      const { data, error } = await this.supabase.rpc('get_personalized_stiri', {
+        user_uuid: userId,
+        p_limit: limit,
+        p_offset: offset,
+        p_order_by: orderBy,
+        p_order_dir: orderDirection
+      });
+
+      if (error) {
+        throw new GraphQLError(`Eroare la preluarea știrilor personalizate: ${error.message}`, {
+          extensions: { code: 'DATABASE_ERROR' }
+        });
+      }
+
+      const result = data || { items: [], total_count: 0 };
+      
+      return {
+        stiri: result.items || [],
+        totalCount: result.total_count || 0,
+        hasNextPage: (offset + limit) < (result.total_count || 0),
+        hasPreviousPage: offset > 0
+      };
+    } catch (error) {
+      if (error instanceof GraphQLError) {
+        throw error;
+      }
+      throw new GraphQLError('Eroare internă la preluarea știrilor personalizate', {
         extensions: { code: 'INTERNAL_ERROR' }
       });
     }

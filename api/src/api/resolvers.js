@@ -13,6 +13,7 @@ import {
   createStireInputSchema,
   updateStireInputSchema,
   updateProfileInputSchema,
+  updateUserPreferencesInputSchema,
   paginationSchema,
   idSchema
 } from '../config/validation.js';
@@ -41,6 +42,18 @@ const typeResolvers = {
   Profile: {
     id: (parent) => parent.id,
     subscriptionTier: (parent) => parent.subscriptionTier,
+    displayName: (parent) => parent.displayName,
+    avatarUrl: (parent) => parent.avatarUrl,
+    preferences: async (parent, args, context) => {
+      if (!context.user) {
+        return null;
+      }
+      try {
+        return await userService.getUserPreferences(context.user.id);
+      } catch (error) {
+        return null;
+      }
+    },
     createdAt: (parent) => parent.createdAt,
     updatedAt: (parent) => parent.updatedAt
   },
@@ -297,7 +310,56 @@ export function createResolvers(services) {
             });
           }
 
-          return await userService.getUserProfile(validatedUserId);
+          const profile = await userService.getUserProfile(validatedUserId);
+          return {
+            id: profile.id,
+            subscriptionTier: profile.subscription_tier,
+            displayName: profile.display_name,
+            avatarUrl: profile.avatar_url,
+            createdAt: profile.created_at,
+            updatedAt: profile.updated_at
+          };
+        } catch (error) {
+          throw error;
+        }
+      },
+
+      getUserPreferences: async (parent, args, context) => {
+        try {
+          if (!context.user) {
+            throw new GraphQLError('Utilizator neautentificat', {
+              extensions: { code: 'UNAUTHENTICATED' }
+            });
+          }
+
+          return await userService.getUserPreferences(context.user.id);
+        } catch (error) {
+          throw error;
+        }
+      },
+
+      getPersonalizedFeed: async (parent, args, context) => {
+        try {
+          if (!context.user) {
+            throw new GraphQLError('Utilizator neautentificat', {
+              extensions: { code: 'UNAUTHENTICATED' }
+            });
+          }
+
+          const { limit, offset, orderBy, orderDirection } = args || {};
+          const normalizedArgs = {
+            limit,
+            offset,
+            orderBy: orderBy === 'publicationDate'
+              ? 'publication_date'
+              : orderBy === 'createdAt'
+                ? 'created_at'
+                : orderBy,
+            orderDirection
+          };
+          const validatedArgs = validateGraphQLData(normalizedArgs, paginationSchema);
+          
+          return await userService.getPersonalizedStiri(context.user.id, validatedArgs);
         } catch (error) {
           throw error;
         }
@@ -537,6 +599,23 @@ export function createResolvers(services) {
           const validatedInput = validateGraphQLData(input, updateProfileInputSchema);
 
           return await userService.updateUserProfile(context.user.id, validatedInput);
+        } catch (error) {
+          throw error;
+        }
+      },
+
+      updateUserPreferences: async (parent, { input }, context) => {
+        try {
+          if (!context.user) {
+            throw new GraphQLError('Utilizator neautentificat', {
+              extensions: { code: 'UNAUTHENTICATED' }
+            });
+          }
+
+          // Validează input-ul pentru actualizarea preferințelor
+          const validatedInput = validateGraphQLData(input, updateUserPreferencesInputSchema);
+
+          return await userService.updateUserPreferences(context.user.id, validatedInput);
         } catch (error) {
           throw error;
         }

@@ -26,9 +26,19 @@ export const typeDefs = `#graphql
     predictedViews: Int
   }
 
+  type UserPreferences {
+    preferredCategories: [String!]!
+    notificationSettings: JSON!
+    createdAt: String!
+    updatedAt: String!
+  }
+
   type Profile {
     id: ID!
     subscriptionTier: String!
+    displayName: String
+    avatarUrl: String
+    preferences: UserPreferences
     createdAt: String!
     updatedAt: String
   }
@@ -194,6 +204,13 @@ export const typeDefs = `#graphql
 
   input UpdateProfileInput {
     subscriptionTier: String
+    displayName: String
+    avatarUrl: String
+  }
+
+  input UpdateUserPreferencesInput {
+    preferredCategories: [String!]!
+    notificationSettings: JSON
   }
 
   input SubscribeNewsletterInput {
@@ -270,6 +287,13 @@ export const typeDefs = `#graphql
     # Query-uri pentru utilizatori
     me: User
     getUserProfile(userId: ID!): Profile
+    getUserPreferences: UserPreferences!
+    getPersonalizedFeed(
+      limit: Int
+      offset: Int
+      orderBy: String
+      orderDirection: String
+    ): StiriResponse!
 
     # Query-uri pentru administrare
     getRequestHistory(
@@ -323,6 +347,7 @@ export const typeDefs = `#graphql
 
     # Mutații pentru profile
     updateProfile(input: UpdateProfileInput!): Profile!
+    updateUserPreferences(input: UpdateUserPreferencesInput!): UserPreferences!
 
     # Newsletter
     subscribeNewsletter(input: SubscribeNewsletterInput!): NewsletterSubscriber!

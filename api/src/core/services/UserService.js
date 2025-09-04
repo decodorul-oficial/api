@@ -288,6 +288,127 @@ export class UserService {
       });
     }
   }
+
+  /**
+   * Obține preferințele unui utilizator
+   * @param {string} userId - ID-ul utilizatorului
+   * @returns {Promise<Object>} Preferințele utilizatorului
+   */
+  async getUserPreferences(userId) {
+    try {
+      const preferences = await this.userRepository.getUserPreferences(userId);
+      
+      if (!preferences) {
+        // Returnează preferințe default dacă nu există
+        return {
+          preferredCategories: [],
+          notificationSettings: {},
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString()
+        };
+      }
+
+      return {
+        preferredCategories: preferences.preferred_categories || [],
+        notificationSettings: preferences.notification_settings || {},
+        createdAt: preferences.created_at,
+        updatedAt: preferences.updated_at
+      };
+    } catch (error) {
+      if (error instanceof GraphQLError) {
+        throw error;
+      }
+      throw new GraphQLError('Eroare internă la preluarea preferințelor', {
+        extensions: { code: 'INTERNAL_ERROR' }
+      });
+    }
+  }
+
+  /**
+   * Actualizează preferințele unui utilizator
+   * @param {string} userId - ID-ul utilizatorului
+   * @param {Object} preferences - Preferințele de actualizat
+   * @param {Array} preferences.preferredCategories - Categoriile preferate
+   * @param {Object} preferences.notificationSettings - Setările de notificare
+   * @returns {Promise<Object>} Preferințele actualizate
+   */
+  async updateUserPreferences(userId, preferences) {
+    try {
+      // Validare input
+      if (!preferences.preferredCategories || !Array.isArray(preferences.preferredCategories)) {
+        throw new GraphQLError('Categoriile preferate trebuie să fie un array', {
+          extensions: { code: 'VALIDATION_ERROR' }
+        });
+      }
+
+      const updatedPreferences = await this.userRepository.updateUserPreferences(userId, preferences);
+
+      return {
+        preferredCategories: updatedPreferences.preferred_categories || [],
+        notificationSettings: updatedPreferences.notification_settings || {},
+        createdAt: updatedPreferences.created_at,
+        updatedAt: updatedPreferences.updated_at
+      };
+    } catch (error) {
+      if (error instanceof GraphQLError) {
+        throw error;
+      }
+      throw new GraphQLError('Eroare internă la actualizarea preferințelor', {
+        extensions: { code: 'INTERNAL_ERROR' }
+      });
+    }
+  }
+
+  /**
+   * Obține știrile personalizate pentru un utilizator
+   * @param {string} userId - ID-ul utilizatorului
+   * @param {Object} options - Opțiunile de paginare și sortare
+   * @returns {Promise<Object>} Știrile personalizate cu paginare
+   */
+  async getPersonalizedStiri(userId, options = {}) {
+    try {
+      const result = await this.userRepository.getPersonalizedStiri(userId, options);
+
+      return {
+        stiri: result.stiri.map(stire => this.transformStireForGraphQL(stire)),
+        pagination: {
+          totalCount: result.totalCount,
+          hasNextPage: result.hasNextPage,
+          hasPreviousPage: result.hasPreviousPage,
+          currentPage: Math.floor((options.offset || 0) / (options.limit || 10)) + 1,
+          totalPages: Math.ceil(result.totalCount / (options.limit || 10))
+        }
+      };
+    } catch (error) {
+      if (error instanceof GraphQLError) {
+        throw error;
+      }
+      throw new GraphQLError('Eroare internă la preluarea știrilor personalizate', {
+        extensions: { code: 'INTERNAL_ERROR' }
+      });
+    }
+  }
+
+  /**
+   * Transformă o știre din formatul bazei de date în formatul GraphQL
+   * @param {Object} stire - Știrea din baza de date
+   * @returns {Object} Știrea transformată pentru GraphQL
+   */
+  transformStireForGraphQL(stire) {
+    return {
+      id: stire.id.toString(),
+      title: stire.title,
+      publicationDate: stire.publication_date,
+      content: stire.content,
+      topics: stire.topics || [],
+      entities: stire.entities || [],
+      createdAt: stire.created_at,
+      updatedAt: stire.updated_at,
+      filename: stire.filename,
+      viewCount: stire.view_count || 0,
+      predictedViews: stire.predicted_views
+    };
+  }
 }
 
 export default UserService;

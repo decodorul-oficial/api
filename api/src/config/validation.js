@@ -75,7 +75,23 @@ export const updateStireInputSchema = z.object({
 export const updateProfileInputSchema = z.object({
   subscriptionTier: z.enum(['free', 'pro', 'enterprise'], {
     errorMap: () => ({ message: 'Tier-ul de abonament trebuie să fie: free, pro sau enterprise' })
-  }).optional()
+  }).optional(),
+  displayName: z.string()
+    .min(2, 'Numele de afișare trebuie să aibă cel puțin 2 caractere')
+    .max(100, 'Numele de afișare nu poate depăși 100 de caractere')
+    .trim()
+    .optional(),
+  avatarUrl: z.string()
+    .url('URL-ul avatarului trebuie să fie valid')
+    .max(500, 'URL-ul avatarului nu poate depăși 500 de caractere')
+    .optional()
+}).strict('Input-ul conține câmpuri neașteptate');
+
+export const updateUserPreferencesInputSchema = z.object({
+  preferredCategories: z.array(z.string().min(1, 'Categoria nu poate fi goală'))
+    .min(0, 'Lista de categorii nu poate fi goală')
+    .max(20, 'Nu puteți selecta mai mult de 20 de categorii'),
+  notificationSettings: z.record(z.any()).optional()
 }).strict('Input-ul conține câmpuri neașteptate');
 
 export const paginationSchema = z.object({
