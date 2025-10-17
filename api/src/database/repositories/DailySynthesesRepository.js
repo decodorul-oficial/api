@@ -25,7 +25,7 @@ export class DailySynthesesRepository {
     try {
       const { data, error } = await this.publicSchema
         .from(this.tableName)
-        .select('synthesis_date, synthesis_type, title, content, summary, metadata')
+        .select('id, synthesis_date, synthesis_type, title, content, summary, metadata')
         .eq('synthesis_date', dateISO)
         .eq('synthesis_type', 'detailed')
         .single();

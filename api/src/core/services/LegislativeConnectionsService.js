@@ -322,6 +322,69 @@ export class LegislativeConnectionsService {
       throw error;
     }
   }
+
+  /**
+   * Obține conexiunile (din view-ul conexiuni_documente) pentru o știre
+   * @param {number|string} newsId - ID-ul știrii
+   * @param {Object} options - Opțiuni: relationType, limit, offset
+   * @returns {Promise<Array>} Conexiuni mapate pentru GraphQL
+   */
+  async getDocumentConnectionsByNews(newsId, options = {}) {
+    try {
+      const { relationType = null, limit = 50, offset = 0 } = options;
+
+      if (!newsId || isNaN(Number(newsId))) {
+        throw new GraphQLError('ID-ul știrii trebuie să fie un număr valid', {
+          extensions: { code: 'BAD_USER_INPUT' }
+        });
+      }
+
+      let query = this.supabase
+        .from('conexiuni_documente')
+        .select(
+          `id_conexiune, id_stire_sursa, cheie_document_sursa, id_stire_tinta, cheie_document_tinta, tip_relatie, confidence_score, extraction_method`,
+          { count: 'exact' }
+        )
+        .eq('id_stire_sursa', Number(newsId))
+        .order('id_conexiune', { ascending: false });
+
+      if (relationType) {
+        query = query.eq('tip_relatie', relationType);
+      }
+
+      query = query.range(offset, offset + limit - 1);
+
+      const { data, error } = await query;
+
+      if (error) {
+        console.error('Eroare la interogarea conexiunilor din view:', error);
+        throw new GraphQLError('Eroare la obținerea conexiunilor documentelor', {
+          extensions: { code: 'INTERNAL_SERVER_ERROR' }
+        });
+      }
+
+      const rows = data || [];
+
+      return rows.map((r) => ({
+        idConexiune: String(r.id_conexiune),
+        idStireSursa: r.id_stire_sursa != null ? String(r.id_stire_sursa) : null,
+        cheieDocumentSursa: r.cheie_document_sursa || null,
+        idStireTinta: r.id_stire_tinta != null ? String(r.id_stire_tinta) : null,
+        cheieDocumentTinta: r.cheie_document_tinta || null,
+        tipRelatie: r.tip_relatie,
+        confidenceScore: r.confidence_score,
+        extractionMethod: r.extraction_method
+      }));
+    } catch (error) {
+      if (error instanceof GraphQLError) {
+        throw error;
+      }
+      console.error('Eroare neașteptată în getDocumentConnectionsByNews:', error);
+      throw new GraphQLError('Eroare internă la obținerea conexiunilor documentelor', {
+        extensions: { code: 'INTERNAL_SERVER_ERROR' }
+      });
+    }
+  }
 }
 
 export default LegislativeConnectionsService;

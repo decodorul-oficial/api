@@ -47,25 +47,18 @@ export function createAuthMiddleware(userService) {
         const supabaseToken = getCookieValue(req.headers.cookie, 'sb-kwgfkcxlgxikmzdpxulp-auth-token');
         if (supabaseToken) {
           try {
-            // Verifică dacă este un JWT valid (3 părți separate prin punct)
-            const parts = supabaseToken.split('.');
-            if (parts.length === 3) {
-              // Decodifică payload-ul pentru a verifica dacă este un token valid
-              const payload = JSON.parse(Buffer.from(parts[1], 'base64').toString());
-              
-              // Verifică dacă token-ul este pentru utilizatorul autentificat
-              if (payload.role === 'authenticated' && payload.sub) {
-                // Folosește token-ul din cookie direct (nu există access_token separat)
-                token = supabaseToken;
-                console.log('✅ Token extras din cookie Supabase pentru utilizatorul:', payload.sub);
-              } else {
-                console.log('⚠️ Token din cookie nu este pentru utilizator autentificat:', payload.role);
-              }
+            // Decodifică obiectul JSON din cookie
+            const tokenObject = JSON.parse(Buffer.from(supabaseToken, 'base64').toString());
+            
+            // Extrage access_token din obiect
+            if (tokenObject.access_token) {
+              token = tokenObject.access_token;
+              console.log('✅ Access token extras din cookie Supabase pentru utilizatorul:', tokenObject.user?.id);
             } else {
-              console.log('⚠️ Token din cookie nu este un JWT valid (nu are 3 părți)');
+              console.log('⚠️ Nu s-a găsit access_token în obiectul din cookie');
             }
           } catch (error) {
-            console.warn('Eroare la decodificarea token-ului din cookie:', error);
+            console.warn('Eroare la decodificarea obiectului din cookie:', error);
           }
         } else {
           console.log('ℹ️ Nu s-a găsit token Supabase în cookies');
@@ -79,6 +72,20 @@ export function createAuthMiddleware(userService) {
         console.log('⚠️ Token validat dar utilizatorul nu a fost găsit');
       } else if (user) {
         console.log('✅ Utilizator autentificat cu succes:', user.id);
+        
+        // Check trial status and update user profile if needed
+        try {
+          const trialStatus = await userService.checkTrialStatus(user.id);
+          user.trialStatus = trialStatus;
+          
+          // If trial expired, update subscription tier
+          if (trialStatus.expired) {
+            user.profile.subscriptionTier = 'free';
+          }
+        } catch (error) {
+          console.error('Error checking trial status:', error);
+          // Don't fail authentication if trial check fails
+        }
       } else {
         console.log('ℹ️ Nu există token pentru autentificare');
       }
@@ -148,9 +155,35 @@ export function requireRole(context, allowedRoles) {
   return user;
 }
 
+/**
+ * Funcție helper pentru verificarea trial-ului utilizatorului
+ * @param {Object} context - Contextul GraphQL
+ * @param {boolean} allowTrial - Dacă trial-ul este permis
+ * @returns {Object} Utilizatorul autentificat cu informații despre trial
+ */
+export function requireTrialOrSubscription(context, allowTrial = true) {
+  const user = requireAuth(context);
+  
+  // Check if user is in trial
+  const isInTrial = user.trialStatus?.isTrial || false;
+  const hasValidSubscription = ['pro', 'enterprise'].includes(user.profile.subscriptionTier);
+  
+  if (!hasValidSubscription && !(allowTrial && isInTrial)) {
+    throw new GraphQLError('Această funcționalitate necesită un abonament activ sau trial', {
+      extensions: { 
+        code: 'SUBSCRIPTION_REQUIRED',
+        trialStatus: user.trialStatus
+      }
+    });
+  }
+  
+  return user;
+}
+
 export default {
   createAuthMiddleware,
   requireAuth,
   requireOwnership,
-  requireRole
+  requireRole,
+  requireTrialOrSubscription
 };

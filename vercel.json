@@ -7,12 +7,54 @@
       "config": {
         "includeFiles": ["api/src/**"]
       }
+    },
+    {
+      "src": "api/src/api/cron/recurring-billing.js",
+      "use": "@vercel/node"
+    },
+    {
+      "src": "api/src/api/cron/trial-processing.js",
+      "use": "@vercel/node"
+    },
+    {
+      "src": "api/src/api/cron/payment-retries.js",
+      "use": "@vercel/node"
+    },
+    {
+      "src": "api/src/api/cron/full-cleanup.js",
+      "use": "@vercel/node"
+    },
+    {
+      "src": "api/src/api/cron/monitoring.js",
+      "use": "@vercel/node"
     }
   ],
   "rewrites": [
     {
       "source": "/graphql",
       "destination": "/api/src/index.js"
+    }
+  ],
+  "crons": [
+    {
+      "path": "/api/src/api/cron/recurring-billing",
+      "schedule": "0 */6 * * *"
+    },
+    {
+      "path": "/api/src/api/cron/trial-processing",
+      "schedule": "0 * * * *"
+    },
+    {
+      "path": "/api/src/api/cron/payment-retries",
+      "schedule": "0 */2 * * *"
+    },
+    {
+      "path": "/api/src/api/cron/full-cleanup",
+      "schedule": "0 2 * * *"
+    },
+    {
+      "path": "/api/src/api/cron/monitoring",
+      "schedule": "*/15 * * * *"
     }
   ]
 }

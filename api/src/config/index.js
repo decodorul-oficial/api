@@ -38,7 +38,7 @@ export const securityConfig = {
     origin: process.env.CORS_ORIGIN || '*',
     credentials: true,
     methods: ['GET', 'POST', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'X-Internal-API-Key']
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'X-Internal-API-Key', 'X-Captcha-Token', 'X-Recaptcha-Token']
   },
   rateLimit: {
     windowMs: 15 * 60 * 1000, // 15 minute
@@ -72,6 +72,17 @@ export const securityConfig = {
 };
 
 /**
+ * Configurația pentru reCAPTCHA v3
+ */
+export const captchaConfig = {
+  secretKey: process.env.RECAPTCHA_SECRET_KEY,
+  minScore: parseFloat(process.env.RECAPTCHA_MIN_SCORE || '0.5'),
+  verifyUrl: 'https://www.google.com/recaptcha/api/siteverify',
+  timeout: 5000,
+  enabled: !!process.env.RECAPTCHA_SECRET_KEY
+};
+
+/**
  * Configurația pentru validare
  */
 export const validationConfig = {
@@ -99,7 +110,8 @@ export const loggingConfig = {
 export function validateEnvironment() {
   const requiredEnvVars = [
     'SUPABASE_URL',
-    'SUPABASE_SERVICE_ROLE_KEY'
+    'SUPABASE_SERVICE_ROLE_KEY',
+    'INTERNAL_API_KEY'
   ];
 
   const missingVars = requiredEnvVars.filter(varName => !process.env[varName]);
@@ -127,6 +139,7 @@ export default {
   supabase: supabaseConfig,
   apollo: apolloConfig,
   security: securityConfig,
+  captcha: captchaConfig,
   validation: validationConfig,
   logging: loggingConfig,
   validateEnvironment

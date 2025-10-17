@@ -127,6 +127,65 @@ query SearchCombined {
 }
 
 -----------------------------------------------------------------
+5. CĂUTARE CU SORTARE DUPĂ VIZUALIZĂRI
+-----------------------------------------------------------------
+
+query SearchByViews {
+  searchStiriByKeywords(
+    query: "guvern"
+    orderBy: "viewCount"
+    orderDirection: "desc"
+    limit: 10
+    offset: 0
+  ) {
+    stiri {
+      id
+      title
+      publicationDate
+      viewCount
+      content
+    }
+    pagination {
+      totalCount
+      hasNextPage
+      currentPage
+      totalPages
+    }
+  }
+}
+
+-----------------------------------------------------------------
+6. CĂUTARE COMBINATĂ CU SORTARE DUPĂ VIZUALIZĂRI
+-----------------------------------------------------------------
+
+query SearchCombinedByViews {
+  searchStiriByKeywords(
+    query: "hotarare guvern"
+    keywords: ["legislatie"]
+    publicationDateFrom: "2024-06-01"
+    publicationDateTo: "2024-08-31"
+    orderBy: "viewCount"
+    orderDirection: "desc"
+    limit: 10
+    offset: 0
+  ) {
+    stiri {
+      id
+      title
+      publicationDate
+      viewCount
+      content
+    }
+    pagination {
+      totalCount
+      hasNextPage
+      currentPage
+      totalPages
+    }
+  }
+}
+
+-----------------------------------------------------------------
 FUNCȚIONALITĂȚI ÎMBUNĂTĂȚITE:
 -----------------------------------------------------------------
 
