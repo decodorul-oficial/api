@@ -48,10 +48,10 @@ await supabase
 | Job Name | Vercel Schedule | Database Next Run | Description |
 |----------|----------------|-------------------|-------------|
 | `full_cleanup` | `0 2 * * *` | Daily at 2:00 AM | Curăță log-uri vechi |
-| `recurring_billing` | `0 */6 * * *` | Every 6 hours | Procesează facturarea |
-| `trial_processing` | `0 * * * *` | Every hour | Procesează trial-uri |
-| `payment_retries` | `0 */2 * * *` | Every 2 hours | Reîncearcă plăți |
-| `monitoring` | `*/15 * * * *` | Every 15 minutes | Monitorizează sistemul |
+| `recurring_billing` | `0 3 * * *` | Daily at 3:00 AM | Procesează facturarea |
+| `trial_processing` | `0 4 * * *` | Daily at 4:00 AM | Procesează trial-uri |
+| `payment_retries` | `0 5 * * *` | Daily at 5:00 AM | Reîncearcă plăți |
+| `monitoring` | `0 6 * * *` | Daily at 6:00 AM | Monitorizează sistemul |
 
 ## 🔄 Fluxul de Sincronizare
 

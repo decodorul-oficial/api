@@ -8,12 +8,12 @@ Sistemul de management al cron job-urilor pentru subscripții permite monitoriza
 
 ### 1. Vercel Cron Jobs (`vercel.json`)
 
-Configurate 5 cron job-uri:
-- **recurring_billing**: Rulează la fiecare 6 ore (`0 */6 * * *`)
-- **trial_processing**: Rulează la fiecare oră (`0 * * * *`)
-- **payment_retries**: Rulează la fiecare 2 ore (`0 */2 * * *`)
-- **full_cleanup**: Rulează zilnic la 2 AM (`0 2 * * *`)
-- **monitoring**: Rulează la fiecare 15 minute (`*/15 * * * *`)
+Configurate 5 cron job-uri (toate rulează zilnic):
+- **full_cleanup**: Rulează zilnic la 2:00 AM (`0 2 * * *`)
+- **recurring_billing**: Rulează zilnic la 3:00 AM (`0 3 * * *`)
+- **trial_processing**: Rulează zilnic la 4:00 AM (`0 4 * * *`)
+- **payment_retries**: Rulează zilnic la 5:00 AM (`0 5 * * *`)
+- **monitoring**: Rulează zilnic la 6:00 AM (`0 6 * * *`)
 
 ### 2. Database Schema (`cron_jobs`)
 
