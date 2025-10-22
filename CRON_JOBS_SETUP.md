@@ -428,3 +428,20 @@ Pentru întrebări sau probleme:
 - Verifică documentația Supabase
 - Verifică log-urile din baza de date
 
+
+
+## Radu Comment
+
+Pentru a activa restul de cron jobs in vercel.json adauga :
+`{
+  "path": "/api/src/api/cron/payment-retries",
+  "schedule": "0 5 * * *"
+},
+{
+  "path": "/api/src/api/cron/full-cleanup", 
+  "schedule": "0 2 * * *"
+},
+{
+  "path": "/api/src/api/cron/monitoring",
+  "schedule": "0 6 * * *"
+}`
