@@ -8,12 +8,16 @@ Sistemul de management al cron job-urilor pentru subscripții permite monitoriza
 
 ### 1. Vercel Cron Jobs (`vercel.json`)
 
-Configurate 5 cron job-uri (toate rulează zilnic):
-- **full_cleanup**: Rulează zilnic la 2:00 AM (`0 2 * * *`)
+**ACTIVE CRON JOBS (Hobby Plan - max 2 allowed):**
 - **recurring_billing**: Rulează zilnic la 3:00 AM (`0 3 * * *`)
 - **trial_processing**: Rulează zilnic la 4:00 AM (`0 4 * * *`)
-- **payment_retries**: Rulează zilnic la 5:00 AM (`0 5 * * *`)
-- **monitoring**: Rulează zilnic la 6:00 AM (`0 6 * * *`)
+
+**DISABLED CRON JOBS (waiting for Pro plan upgrade):**
+- **full_cleanup**: Rulează zilnic la 2:00 AM (`0 2 * * *`) - DISABLED
+- **payment_retries**: Rulează zilnic la 5:00 AM (`0 5 * * *`) - DISABLED  
+- **monitoring**: Rulează zilnic la 6:00 AM (`0 6 * * *`) - DISABLED
+
+> **Note**: Vercel Hobby plan permite maxim 2 cron job-uri active. Pentru a activa toate job-urile, upgrade la Pro plan.
 
 ### 2. Database Schema (`cron_jobs`)
 

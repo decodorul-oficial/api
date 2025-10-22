@@ -43,18 +43,20 @@
     {
       "path": "/api/src/api/cron/trial-processing",
       "schedule": "0 4 * * *"
-    },
-    {
-      "path": "/api/src/api/cron/payment-retries",
-      "schedule": "0 5 * * *"
-    },
-    {
-      "path": "/api/src/api/cron/full-cleanup",
-      "schedule": "0 2 * * *"
-    },
-    {
-      "path": "/api/src/api/cron/monitoring",
-      "schedule": "0 6 * * *"
     }
+    // DISABLED FOR HOBBY PLAN (max 2 cron jobs allowed)
+    // Re-enable when upgrading to Pro plan:
+    // {
+    //   "path": "/api/src/api/cron/payment-retries",
+    //   "schedule": "0 5 * * *"
+    // },
+    // {
+    //   "path": "/api/src/api/cron/full-cleanup",
+    //   "schedule": "0 2 * * *"
+    // },
+    // {
+    //   "path": "/api/src/api/cron/monitoring",
+    //   "schedule": "0 6 * * *"
+    // }
   ]
 }
