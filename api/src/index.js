@@ -164,7 +164,7 @@ async function initializeServer() {
 
     // Configurează CORS
     app.use(cors(securityConfig.cors));
-    console.log('✅!!!!!!! CORS configurat', securityConfig.cors.origin);
+    console.warn('✅!!!!!!! CORS configurat', securityConfig.cors.origin);
     // Parsează JSON
     app.use(express.json({ limit: '10mb' }));
 
