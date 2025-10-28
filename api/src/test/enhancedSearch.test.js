@@ -294,4 +294,33 @@ describe('StiriService - Enhanced searchStiriByKeywords', () => {
       });
     });
   });
+
+  describe('View count sorting', () => {
+    it('should accept viewCount as orderBy parameter', async () => {
+      const mockResult = {
+        stiri: [],
+        totalCount: 0,
+        hasNextPage: false,
+        hasPreviousPage: false
+      };
+      
+      mockStiriRepository.searchStiriByKeywords.mockResolvedValue(mockResult);
+
+      await stiriService.searchStiriByKeywords({
+        query: 'test',
+        orderBy: 'view_count'
+      });
+
+      expect(mockStiriRepository.searchStiriByKeywords).toHaveBeenCalledWith({
+        query: 'test',
+        keywords: undefined,
+        publicationDateFrom: undefined,
+        publicationDateTo: undefined,
+        limit: 10,
+        offset: 0,
+        orderBy: 'view_count',
+        orderDirection: 'desc'
+      });
+    });
+  });
 });

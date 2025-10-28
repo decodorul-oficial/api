@@ -42,6 +42,12 @@ api/src/
 - Pro: 5.000 cereri/zi
 - Enterprise: Nelimitat
 
+### ✅ Subscription-Based Content Limits
+- Limitări de paginare bazate pe abonament
+- Utilizatori fără abonament: maxim 10 știri per pagină
+- Utilizatori cu abonament activ: până la 100 știri per pagină
+- Validare automată a statusului de abonament
+
 ### ✅ Securitate
 - Headers de securitate HTTP (Helmet)
 - Validare input cu Zod
@@ -169,6 +175,7 @@ query Me {
     email
     profile {
       subscriptionTier
+      isNewsletterSubscribed
       createdAt
     }
   }

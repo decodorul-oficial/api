@@ -85,6 +85,7 @@ import UserRepository from './database/repositories/UserRepository.js';
 import NewsletterRepository from './database/repositories/NewsletterRepository.js';
 import DailySynthesesRepository from './database/repositories/DailySynthesesRepository.js';
 import AnalyticsRepository from './database/repositories/AnalyticsRepository.js';
+import { SavedSearchRepository } from './database/repositories/SavedSearchRepository.js';
 
 // Importă serviciile
 import UserService from './core/services/UserService.js';
@@ -93,16 +94,21 @@ import NewsletterService from './core/services/NewsletterService.js';
 import DailySynthesesService from './core/services/DailySynthesesService.js';
 import AnalyticsService from './core/services/AnalyticsService.js';
 import LegislativeConnectionsService from './core/services/LegislativeConnectionsService.js';
+import { SavedSearchService } from './core/services/SavedSearchService.js';
 
 // Importă middleware-urile
 import { createAuthMiddleware } from './middleware/auth.js';
 import { createRateLimiterMiddleware } from './middleware/rateLimiter.js';
 import { createSecurityMiddleware } from './middleware/security.js';
 import { createInternalApiKeyMiddleware } from './middleware/internalApiKey.js';
+import { createCaptchaMiddleware } from './middleware/captcha.js';
 
 // Importă schema și resolver-ii
 import typeDefs from './api/schema.js';
 import { createResolvers } from './api/resolvers.js';
+
+// Importă webhook routes
+import webhookRoutes from './routes/webhook.js';
 
 // Variabile globale pentru serverless
 let server = null;
@@ -121,6 +127,13 @@ async function initializeServer() {
     // Validează variabilele de mediu
     validateEnvironment();
     console.log('✅ Variabilele de mediu validate cu succes');
+
+    // Verifică configurația captcha
+    if (process.env.RECAPTCHA_SECRET_KEY) {
+      console.log('✅ reCAPTCHA v3 configurat cu succes');
+    } else {
+      console.warn('⚠️  reCAPTCHA v3 nu este configurat - captcha validation va fi dezactivat');
+    }
 
     // Inițializează Express și HTTP server
     app = express();
@@ -151,7 +164,7 @@ async function initializeServer() {
 
     // Configurează CORS
     app.use(cors(securityConfig.cors));
-
+    console.warn('✅!!!!!!! CORS configurat', securityConfig.cors.origin);
     // Parsează JSON
     app.use(express.json({ limit: '10mb' }));
 
@@ -162,17 +175,19 @@ async function initializeServer() {
     const newsletterRepository = new NewsletterRepository(serviceClient);
     const dailySynthesesRepository = new DailySynthesesRepository(serviceClient);
     const analyticsRepository = new AnalyticsRepository(serviceClient);
+    const savedSearchRepository = new SavedSearchRepository(serviceClient);
 
     // Inițializează serviciile (injectăm explicit clientul Supabase și repository-urile)
-    const userService = new UserService(serviceClient, userRepository);
     const stiriService = new StiriService(stiriRepository);
     const newsletterService = new NewsletterService(newsletterRepository);
+    const userService = new UserService(serviceClient, userRepository, newsletterService);
     const dailySynthesesService = new DailySynthesesService(dailySynthesesRepository);
     const analyticsService = new AnalyticsService(analyticsRepository);
     const legislativeConnectionsService = new LegislativeConnectionsService(serviceClient);
+    const savedSearchService = new SavedSearchService(savedSearchRepository, userService);
 
     // Creează resolver-ii
-    const resolvers = createResolvers({ userService, stiriService, userRepository, newsletterService, dailySynthesesService, analyticsService, legislativeConnectionsService });
+    const resolvers = createResolvers({ userService, stiriService, userRepository, newsletterService, dailySynthesesService, analyticsService, legislativeConnectionsService, savedSearchService, supabaseClient: serviceClient });
 
     // Configurează serverul Apollo
     server = new ApolloServer({
@@ -241,18 +256,19 @@ async function initializeServer() {
     await server.start();
     console.log('✅ Serverul Apollo pornit cu succes');
 
-    // Configurează middleware-ul de autentificare
+    // Configurează middleware-urile
     const authMiddleware = createAuthMiddleware(userService);
+    const captchaMiddleware = createCaptchaMiddleware();
 
     // Aplică middleware-urile de securitate adiționale
     const securityMiddlewares = createSecurityMiddleware();
     const internalApiKeyMiddleware = createInternalApiKeyMiddleware();
 
     // Aplică middleware-urile la Express
-    app.use('/graphql', 
-      internalApiKeyMiddleware,
+    const graphqlMiddlewares = [
       ...securityMiddlewares,
-      authMiddleware,
+      authMiddleware,     // Auth middleware - verifică autentificarea înainte de captcha
+      captchaMiddleware,  // Captcha middleware - poate verifica dacă utilizatorul este autentificat
       expressMiddleware(server, {
         context: async ({ req }) => {
           // Contextul GraphQL - utilizatorul este setat de middleware-ul de autentificare
@@ -263,7 +279,14 @@ async function initializeServer() {
           };
         }
       })
-    );
+    ];
+
+    // Only apply internal API key middleware in production
+    if (process.env.NODE_ENV === 'production') {
+      graphqlMiddlewares.unshift(internalApiKeyMiddleware);
+    }
+
+    app.use('/graphql', ...graphqlMiddlewares);
 
     // Endpoint de health check
     app.get('/health', (req, res) => {
@@ -344,6 +367,9 @@ async function initializeServer() {
       }
     });
 
+    // Webhook routes
+    app.use('/webhook', webhookRoutes);
+
     // Endpoint pentru informații despre API
     app.get('/', (req, res) => {
       res.json({
@@ -353,7 +379,8 @@ async function initializeServer() {
         environment: process.env.NODE_ENV || 'development',
         endpoints: {
           graphql: '/graphql',
-          health: '/health'
+          health: '/health',
+          webhook: '/webhook'
         },
         documentation: 'Consultați schema GraphQL pentru detalii'
       });

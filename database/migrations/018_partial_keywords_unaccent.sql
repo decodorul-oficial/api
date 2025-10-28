@@ -30,7 +30,7 @@ DECLARE
   v_result JSONB;
 BEGIN
   -- Validare parametri de sortare
-  IF v_order_by NOT IN ('publication_date', 'created_at', 'title', 'id') THEN
+  IF v_order_by NOT IN ('publication_date', 'created_at', 'title', 'id', 'view_count') THEN
     v_order_by := 'publication_date';
   END IF;
   IF v_order_dir NOT IN ('asc', 'desc') THEN
