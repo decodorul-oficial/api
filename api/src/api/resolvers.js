@@ -161,6 +161,11 @@ export function createResolvers(services) {
   // Admin users resolvers
   const adminUsersResolvers = createAdminUsersResolvers({ userService, supabaseClient });
 
+  // Minimal in-memory throttling map for updateOrderStatus (orderId+ip)
+  const orderStatusThrottle = new Map();
+  const ORDER_STATUS_WINDOW_MS = 60 * 1000; // 1 minute
+  const ORDER_STATUS_MAX_REQUESTS = 10; // allow up to 10/min per orderId+ip
+
   /**
    * Resolver-i pentru tipuri
    */
@@ -2192,6 +2197,225 @@ export function createResolvers(services) {
         } catch (error) {
           console.error('Webhook processing error:', error);
           return false;
+        }
+      },
+
+      // Webhook-compatible: update order status
+      updateOrderStatus: async (parent, args, context) => {
+        const nowIso = new Date().toISOString();
+        const ip = context?.req?.headers?.['cf-connecting-ip']
+          || context?.req?.headers?.['x-real-ip']
+          || context?.req?.headers?.['x-forwarded-for']?.split(',')[0]?.trim()
+          || context?.req?.ip
+          || context?.ip
+          || 'unknown';
+
+        // Auth: X-Internal-API-Key check (return GraphQL payload, not HTTP 403)
+        const providedKey = context?.req?.headers?.['x-internal-api-key'];
+        const expectedKey = process.env.INTERNAL_API_KEY;
+        if (!expectedKey || !providedKey || String(providedKey) !== String(expectedKey)) {
+          return { success: false, message: 'Unauthorized', order: null };
+        }
+
+        try {
+          const { orderId, status, transactionId, amount, currency, rawData } = args || {};
+
+          // Throttling per (orderId+ip)
+          try {
+            const throttleKey = `${orderId}|${ip}`;
+            const entry = orderStatusThrottle.get(throttleKey) || { timestamps: [] };
+            const cutoff = Date.now() - ORDER_STATUS_WINDOW_MS;
+            entry.timestamps = entry.timestamps.filter(ts => ts > cutoff);
+            if (entry.timestamps.length >= ORDER_STATUS_MAX_REQUESTS) {
+              return { success: false, message: 'Too many requests', order: null };
+            }
+            entry.timestamps.push(Date.now());
+            orderStatusThrottle.set(throttleKey, entry);
+          } catch (_) {}
+
+          // Map provider statuses to internal enum
+          const normalizeStatus = (v) => {
+            if (!v) return null;
+            const s = String(v).trim().toUpperCase();
+            if (s === 'CONFIRMED' || s === 'PAID') return 'SUCCEEDED';
+            if (s === 'PENDING') return 'PENDING';
+            if (s === 'CANCELLED' || s === 'CANCELED') return 'CANCELED';
+            if (s === 'FAILED') return 'FAILED';
+            if (s === 'REFUNDED') return 'REFUNDED';
+            return s;
+          };
+          const newStatus = normalizeStatus(status);
+
+          const allowed = ['PENDING', 'SUCCEEDED', 'FAILED', 'CANCELED', 'REFUNDED'];
+          if (!orderId || typeof orderId !== 'string') {
+            return { success: false, message: 'Order not found', order: null };
+          }
+          if (!newStatus || !allowed.includes(newStatus)) {
+            return { success: false, message: 'Invalid status', order: null };
+          }
+
+          // amount: numeric positive (if provided)
+          let amountNumber = undefined;
+          if (amount !== undefined && amount !== null) {
+            const parsed = parseFloat(String(amount));
+            if (!Number.isFinite(parsed) || parsed <= 0) {
+              return { success: false, message: 'Invalid amount', order: null };
+            }
+            amountNumber = parsed;
+          }
+
+          // currency: ISO-4217 uppercase (if provided)
+          let currencyUpper = undefined;
+          if (currency !== undefined && currency !== null) {
+            const c = String(currency).trim().toUpperCase();
+            if (!/^[A-Z]{3}$/.test(c)) {
+              return { success: false, message: 'Invalid currency', order: null };
+            }
+            currencyUpper = c;
+          }
+
+          // Load order
+          const { data: order, error: orderErr } = await supabase
+            .from('orders')
+            .select('*')
+            .eq('id', orderId)
+            .single();
+          if (orderErr || !order) {
+            return { success: false, message: 'Order not found', order: null };
+          }
+
+          const oldStatus = String(order.status).toUpperCase();
+          const currentTransactionId = order?.metadata?.last_transaction_id || null;
+          const currentAmount = Number(order.amount);
+          const currentCurrency = order.currency;
+
+          // Idempotency check
+          const sameStatus = oldStatus === newStatus;
+          const sameTxn = (transactionId ? transactionId : currentTransactionId) === currentTransactionId;
+          const sameAmount = amountNumber === undefined || Number(amountNumber) === Number(currentAmount);
+          const sameCurrency = currencyUpper === undefined || currencyUpper === currentCurrency;
+          if (sameStatus && sameTxn && sameAmount && sameCurrency) {
+            // Log event anyway for audit, but do not duplicate updates
+            try {
+              await supabase.from('payment_logs').insert({
+                order_id: order.id,
+                event_type: 'WEBHOOK_PROCESSED',
+                netopia_order_id: order.netopia_order_id,
+                amount: amountNumber !== undefined ? amountNumber : currentAmount,
+                currency: currencyUpper || currentCurrency,
+                status: newStatus,
+                raw_payload: rawData || {},
+                created_at: nowIso
+              });
+            } catch (_) {}
+
+            return {
+              success: true,
+              message: 'Order updated',
+              order: {
+                ...order,
+                amount: currentAmount,
+                currency: currentCurrency,
+                updated_at: order.updated_at
+              }
+            };
+          }
+
+          // Validate transitions
+          const invalid = (msg) => ({ success: false, message: msg, order: null });
+          // Terminal state
+          if (oldStatus === 'REFUNDED' && newStatus !== 'REFUNDED') {
+            return invalid('Invalid transition');
+          }
+          // From SUCCEEDED
+          if (oldStatus === 'SUCCEEDED') {
+            if (newStatus === 'REFUNDED') {
+              // ok
+            } else if (newStatus === 'FAILED' || newStatus === 'CANCELED') {
+              return invalid('Invalid transition');
+            }
+          }
+          // From FAILED/CANCELED to SUCCEEDED requires transactionId and no previous SUCCEEDED
+          if ((oldStatus === 'FAILED' || oldStatus === 'CANCELED') && newStatus === 'SUCCEEDED') {
+            if (!transactionId) {
+              return invalid('Invalid transition');
+            }
+          }
+          // PENDING can move to SUCCEEDED/FAILED/CANCELED
+          // Other combinations generally allowed unless restricted above
+
+          // Prepare update
+          const updatedMetadata = {
+            ...(order.metadata || {}),
+            ...(transactionId ? { last_transaction_id: transactionId } : {})
+          };
+          // Add status timestamps in metadata for audit
+          const statusTsKey = {
+            SUCCEEDED: 'succeeded_at',
+            FAILED: 'failed_at',
+            CANCELED: 'canceled_at',
+            REFUNDED: 'refunded_at'
+          }[newStatus];
+          if (statusTsKey) {
+            updatedMetadata[statusTsKey] = nowIso;
+          }
+
+          const updatePayload = {
+            status: newStatus,
+            ...(amountNumber !== undefined ? { amount: amountNumber } : {}),
+            ...(currencyUpper ? { currency: currencyUpper } : {}),
+            metadata: updatedMetadata,
+            updated_at: nowIso
+          };
+
+          const { data: updatedRows, error: updErr } = await supabase
+            .from('orders')
+            .update(updatePayload)
+            .eq('id', order.id)
+            .select('*');
+          if (updErr || !updatedRows || !updatedRows[0]) {
+            return { success: false, message: 'Failed to update order', order: null };
+          }
+          const updatedOrder = updatedRows[0];
+
+          // On succeeded: optional activation handled elsewhere by webhook/service; here ensure txn stored
+          // On refunded: optionally create refund record if model supports; skipped here to avoid side effects
+
+          // Persist event log
+          try {
+            await supabase.from('payment_logs').insert({
+              order_id: updatedOrder.id,
+              event_type: 'WEBHOOK_PROCESSED',
+              netopia_order_id: updatedOrder.netopia_order_id,
+              amount: Number(updatedOrder.amount),
+              currency: updatedOrder.currency,
+              status: newStatus,
+              raw_payload: rawData || {},
+              created_at: nowIso
+            });
+          } catch (_) {}
+
+          // Semantic log
+          console.log(JSON.stringify({
+            operation: 'updateOrderStatus',
+            orderId: order.id,
+            oldStatus,
+            newStatus,
+            transactionId: transactionId || null,
+            amount: amountNumber !== undefined ? amountNumber : updatedOrder.amount,
+            currency: currencyUpper || updatedOrder.currency,
+            timestamp: nowIso
+          }));
+
+          return {
+            success: true,
+            message: 'Order updated',
+            order: updatedOrder
+          };
+        } catch (err) {
+          // Convert any error to GraphQL payload with success=false without throwing
+          const msg = err?.message && typeof err.message === 'string' ? err.message : 'Internal error';
+          return { success: false, message: msg, order: null };
         }
       },
 
