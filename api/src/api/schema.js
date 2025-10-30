@@ -469,6 +469,16 @@ export const typeDefs = `#graphql
     # Newsletter
     subscribeNewsletter(input: SubscribeNewsletterInput!): NewsletterSubscriber!
     unsubscribeNewsletter(input: UnsubscribeNewsletterInput!): NewsletterSubscriber!
+
+    # Webhook-compatible: actualizează statusul unei comenzi
+    updateOrderStatus(
+      orderId: ID!
+      status: String!
+      transactionId: String
+      amount: String
+      currency: String
+      rawData: JSON
+    ): UpdateOrderStatusPayload!
   }
 
   # =====================================================
@@ -552,6 +562,13 @@ export const typeDefs = `#graphql
     metadata: JSON
     createdAt: String!
     updatedAt: String!
+  }
+
+  # Payload pentru updateOrderStatus
+  type UpdateOrderStatusPayload {
+    success: Boolean!
+    message: String
+    order: Order
   }
 
   enum OrderStatus {
