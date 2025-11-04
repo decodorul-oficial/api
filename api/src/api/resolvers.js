@@ -159,7 +159,11 @@ export function createResolvers(services) {
   );
 
   // Admin users resolvers
-  const adminUsersResolvers = createAdminUsersResolvers({ userService, supabaseClient });
+  const adminUsersResolvers = createAdminUsersResolvers({ 
+    userService, 
+    supabaseClient, 
+    newsletterRepository: newsletterService.newsletterRepository 
+  });
 
   // Minimal in-memory throttling map for updateOrderStatus (orderId+ip)
   const orderStatusThrottle = new Map();
@@ -418,6 +422,21 @@ export function createResolvers(services) {
       expMonth: (parent) => parent.exp_month,
       expYear: (parent) => parent.exp_year,
       isDefault: (parent) => parent.is_default,
+      createdAt: (parent) => parent.created_at,
+      updatedAt: (parent) => parent.updated_at
+    },
+
+    Order: {
+      id: (parent) => parent.id,
+      userId: (parent) => parent.user_id,
+      subscriptionId: (parent) => parent.subscription_id,
+      netopiaOrderId: (parent) => parent.netopia_order_id,
+      amount: (parent) => (parent.amount !== undefined && parent.amount !== null ? Number(parent.amount) : null),
+      currency: (parent) => parent.currency,
+      status: (parent) => parent.status,
+      checkoutUrl: (parent) => parent.checkout_url,
+      paymentMethodId: (parent) => parent.payment_method_id,
+      metadata: (parent) => parent.metadata,
       createdAt: (parent) => parent.created_at,
       updatedAt: (parent) => parent.updated_at
     },
