@@ -852,6 +852,20 @@ export const typeDefs = `#graphql
     ): AdminUsersResponse!
     
     adminUserStats: AdminUserStats!
+
+    # =====================================================
+    # ADMIN NEWSLETTER SUBSCRIBERS QUERIES
+    # =====================================================
+    
+    adminNewsletterSubscribers(
+      page: Int = 1
+      limit: Int = 10
+      sortField: AdminNewsletterSortField = CREATED_AT
+      sortDirection: AdminSortDirection = DESC
+      filters: AdminNewsletterSubscriberFilters
+    ): AdminNewsletterSubscribersResponse!
+    
+    adminNewsletterSubscriberStatuses: [NewsletterSubscriberStatusOption!]!
   }
 
   # =====================================================
@@ -1165,6 +1179,85 @@ export const typeDefs = `#graphql
     message: String!
   }
 
+  # =====================================================
+  # ADMIN NEWSLETTER SUBSCRIBERS MANAGEMENT TYPES
+  # =====================================================
+
+  type AdminNewsletterSubscriber {
+    id: ID!
+    email: String!
+    status: NewsletterSubscriberStatus!
+    statusLabel: String!
+    locale: String!
+    tags: JSON
+    source: String
+    createdAt: DateTime!
+    updatedAt: DateTime!
+    subscribedAt: DateTime!
+    unsubscribedAt: DateTime
+    unsubscribeReason: String
+    lastIp: String
+    lastUserAgent: String
+    consentVersion: String
+    consentAt: DateTime
+    metadata: JSON
+  }
+
+  type AdminNewsletterSubscribersResponse {
+    subscribers: [AdminNewsletterSubscriber!]!
+    pagination: AdminPaginationInfo!
+  }
+
+  type NewsletterSubscriberStatusOption {
+    value: NewsletterSubscriberStatus!
+    label: String!
+    description: String
+  }
+
+  enum NewsletterSubscriberStatus {
+    SUBSCRIBED
+    UNSUBSCRIBED
+    BOUNCED
+    COMPLAINED
+  }
+
+  enum AdminNewsletterSortField {
+    EMAIL
+    STATUS
+    CREATED_AT
+    SUBSCRIBED_AT
+    UPDATED_AT
+  }
+
+  input AdminNewsletterSubscriberFilters {
+    status: NewsletterSubscriberStatusFilter
+    search: String
+    email: NewsletterSubscriberEmailFilter
+    locale: NewsletterSubscriberLocaleFilter
+    source: NewsletterSubscriberSourceFilter
+  }
+
+  input NewsletterSubscriberStatusFilter {
+    eq: NewsletterSubscriberStatus
+  }
+
+  input NewsletterSubscriberEmailFilter {
+    contains: String
+  }
+
+  input NewsletterSubscriberLocaleFilter {
+    eq: String
+  }
+
+  input NewsletterSubscriberSourceFilter {
+    eq: String
+  }
+
+  input UpdateNewsletterSubscriberStatusInput {
+    subscriberId: ID!
+    status: NewsletterSubscriberStatus!
+  }
+
   # Admin Enums
   enum AdminSubscriptionType {
     FREE
@@ -1322,6 +1415,13 @@ export const typeDefs = `#graphql
     adminUsersDeleteUser(userId: ID!): AdminActionResult!
     adminUsersPromoteToAdmin(userId: ID!): AdminActionResult!
     adminUsersDemoteFromAdmin(userId: ID!): AdminActionResult!
+
+    # =====================================================
+    # ADMIN NEWSLETTER SUBSCRIBERS MUTATIONS
+    # =====================================================
+    
+    adminNewsletterSubscribersDelete(subscriberId: ID!): AdminActionResult!
+    adminNewsletterSubscribersUpdateStatus(input: UpdateNewsletterSubscriberStatusInput!): AdminNewsletterSubscriber!
   }
 
   # Scalars

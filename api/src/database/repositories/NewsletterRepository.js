@@ -129,6 +129,185 @@ export class NewsletterRepository {
   }
 
   /**
+   * Obține toți abonații cu filtrare, sortare și paginare
+   * @param {Object} options - Opțiuni de filtrare și paginare
+   * @returns {Promise<Object>} Rezultat cu abonați și informații de paginare
+   */
+  async getAllSubscribers(options = {}) {
+    try {
+      const {
+        page = 1,
+        limit = 10,
+        sortField = 'created_at',
+        sortDirection = 'DESC',
+        filters = {}
+      } = options;
+
+      const offset = (page - 1) * limit;
+
+      // Construiește query-ul
+      let query = this.supabase
+        .from(this.tableName)
+        .select('*', { count: 'exact' });
+
+      // Aplică filtre
+      if (filters.status?.eq) {
+        // Acceptă atât enum values (SUBSCRIBED) cât și lowercase strings (subscribed)
+        const statusValue = filters.status.eq;
+        const statusMap = {
+          'SUBSCRIBED': 'subscribed',
+          'UNSUBSCRIBED': 'unsubscribed',
+          'BOUNCED': 'bounced',
+          'COMPLAINED': 'complained'
+        };
+        const dbStatus = statusMap[statusValue] || statusValue.toLowerCase();
+        query = query.eq('status', dbStatus);
+      }
+
+      if (filters.search) {
+        query = query.ilike('email', `%${filters.search}%`);
+      }
+
+      // Filtrare după email cu contains
+      if (filters.email?.contains) {
+        query = query.ilike('email', `%${filters.email.contains}%`);
+      }
+
+      // Filtrare după locale
+      if (filters.locale?.eq) {
+        query = query.eq('locale', filters.locale.eq);
+      }
+
+      // Filtrare după source
+      if (filters.source?.eq) {
+        query = query.eq('source', filters.source.eq);
+      }
+
+      // Aplică sortarea
+      const sortFieldMap = {
+        'EMAIL': 'email',
+        'STATUS': 'status',
+        'CREATED_AT': 'created_at',
+        'SUBSCRIBED_AT': 'subscribed_at',
+        'UPDATED_AT': 'updated_at'
+      };
+      const dbSortField = sortFieldMap[sortField] || sortField.toLowerCase();
+      query = query.order(dbSortField, { ascending: sortDirection === 'ASC' });
+
+      // Aplică paginarea
+      query = query.range(offset, offset + limit - 1);
+
+      const { data, error, count } = await query;
+
+      if (error) {
+        throw new GraphQLError(`Eroare la preluarea abonaților: ${error.message}`, {
+          extensions: { code: 'DATABASE_ERROR' }
+        });
+      }
+
+      return {
+        data: data || [],
+        totalCount: count || 0
+      };
+    } catch (error) {
+      if (error instanceof GraphQLError) throw error;
+      throw new GraphQLError('Eroare internă la preluarea abonaților', {
+        extensions: { code: 'INTERNAL_ERROR' }
+      });
+    }
+  }
+
+  /**
+   * Șterge un abonat după ID
+   * @param {number} id - ID-ul abonatului
+   * @returns {Promise<boolean>} True dacă ștergerea a reușit
+   */
+  async deleteSubscriber(id) {
+    try {
+      const { error } = await this.supabase
+        .from(this.tableName)
+        .delete()
+        .eq('id', id);
+
+      if (error) {
+        if (error.code === 'PGRST116') {
+          throw new GraphQLError('Abonatul nu a fost găsit', {
+            extensions: { code: 'NOT_FOUND' }
+          });
+        }
+        throw new GraphQLError(`Eroare la ștergerea abonatului: ${error.message}`, {
+          extensions: { code: 'DATABASE_ERROR' }
+        });
+      }
+
+      return true;
+    } catch (error) {
+      if (error instanceof GraphQLError) throw error;
+      throw new GraphQLError('Eroare internă la ștergerea abonatului', {
+        extensions: { code: 'INTERNAL_ERROR' }
+      });
+    }
+  }
+
+  /**
+   * Actualizează statusul unui abonat
+   * @param {number} id - ID-ul abonatului
+   * @param {string} status - Noul status
+   * @returns {Promise<Object>} Abonatul actualizat
+   */
+  async updateSubscriberStatus(id, status) {
+    try {
+      const statusMap = {
+        'SUBSCRIBED': 'subscribed',
+        'UNSUBSCRIBED': 'unsubscribed',
+        'BOUNCED': 'bounced',
+        'COMPLAINED': 'complained'
+      };
+      const dbStatus = statusMap[status] || status.toLowerCase();
+
+      const nowIso = new Date().toISOString();
+      const updateData = {
+        status: dbStatus,
+        updated_at: nowIso
+      };
+
+      // Dacă statusul este unsubscribed, setăm unsubscribed_at
+      if (dbStatus === 'unsubscribed') {
+        updateData.unsubscribed_at = nowIso;
+      } else if (dbStatus === 'subscribed') {
+        updateData.subscribed_at = nowIso;
+        updateData.unsubscribed_at = null;
+        updateData.unsubscribe_reason = null;
+      }
+
+      const { data, error } = await this.supabase
+        .from(this.tableName)
+        .update(updateData)
+        .eq('id', id)
+        .select()
+        .single();
+
+      if (error) {
+        if (error.code === 'PGRST116') {
+          throw new GraphQLError('Abonatul nu a fost găsit', {
+            extensions: { code: 'NOT_FOUND' }
+          });
+        }
+        throw new GraphQLError(`Eroare la actualizarea statusului: ${error.message}`, {
+          extensions: { code: 'DATABASE_ERROR' }
+        });
+      }
+
+      return data;
+    } catch (error) {
+      if (error instanceof GraphQLError) throw error;
+      throw new GraphQLError('Eroare internă la actualizarea statusului', {
+        extensions: { code: 'INTERNAL_ERROR' }
+      });
+    }
+  }
+
+  /**
    * Trimite un email folosind serviciul de email
    * @param {Object} emailData - Datele email-ului
    * @returns {Promise<boolean>} True dacă email-ul a fost trimis cu succes

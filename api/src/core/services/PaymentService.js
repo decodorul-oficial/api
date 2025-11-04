@@ -35,6 +35,59 @@ class PaymentService {
   }
 
   /**
+   * Procesează payload-ul webhook de la Netopia (API v2) și normalizează câmpurile
+   * @param {Object} webhookData
+   * @returns {Object} { success, data: { orderId, netopiaOrderId, status, amount, currency } }
+   */
+  async processWebhook(webhookData) {
+    // Acceptă formate ușor diferite și normalizează
+    const orderId = webhookData.orderId
+      || webhookData.orderID
+      || webhookData?.order?.orderID
+      || webhookData?.payment?.orderID
+      || null;
+
+    const netopiaOrderId = webhookData.netopiaOrderId
+      || webhookData.ntpID
+      || webhookData?.payment?.ntpID
+      || webhookData?.order?.ntpID
+      || null;
+
+    const rawStatus = String(
+      webhookData.status
+      || webhookData?.payment?.status
+      || webhookData?.order?.status
+      || ''
+    ).toUpperCase();
+
+    let status = rawStatus;
+    if (['PAID', 'CONFIRMED', 'SUCCESS', 'SUCCEEDED', 'SUCCEED', 'SUCCEDED'].includes(rawStatus)) {
+      status = 'SUCCEEDED';
+    } else if (['CANCEL', 'CANCELED', 'CANCELLED'].includes(rawStatus)) {
+      status = 'CANCELED';
+    } else if (['FAIL', 'FAILED', 'ERROR', 'FAILED_ERROR'].includes(rawStatus)) {
+      status = 'FAILED';
+    } else if (!status) {
+      status = 'PENDING';
+    }
+
+    // Amount poate veni în bani (centi) sau unități; dacă este întreg mare, nu îl convertim aici
+    const amount = typeof webhookData.amount === 'number' ? webhookData.amount : undefined;
+    const currency = webhookData.currency || undefined;
+
+    return {
+      success: true,
+      data: {
+        orderId,
+        netopiaOrderId,
+        status,
+        amount,
+        currency
+      }
+    };
+  }
+
+  /**
    * Validează prezența variabilelor de mediu necesare pentru funcționare.
    * @private
    * @throws {Error} Dacă o variabilă de mediu obligatorie lipsește.

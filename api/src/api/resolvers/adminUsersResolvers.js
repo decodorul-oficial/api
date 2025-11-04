@@ -190,7 +190,7 @@ function getUserStatusLabel(isActive) {
  * @returns {Object} Resolver-ii GraphQL pentru admin users
  */
 export function createAdminUsersResolvers(services) {
-  const { userService, supabaseClient } = services;
+  const { userService, supabaseClient, newsletterRepository } = services;
 
   return {
     // Resolver-i pentru tipuri admin
@@ -380,8 +380,134 @@ export function createAdminUsersResolvers(services) {
       }
     },
 
+    // Resolver-i pentru tipuri admin newsletter subscribers
+    AdminNewsletterSubscriber: {
+      id: (parent) => String(parent.id),
+      email: (parent) => parent.email,
+      status: (parent) => {
+        const statusMap = {
+          'subscribed': 'SUBSCRIBED',
+          'unsubscribed': 'UNSUBSCRIBED',
+          'bounced': 'BOUNCED',
+          'complained': 'COMPLAINED'
+        };
+        return statusMap[parent.status?.toLowerCase()] || 'SUBSCRIBED';
+      },
+      statusLabel: (parent) => {
+        const labelMap = {
+          'subscribed': 'Abonat',
+          'unsubscribed': 'Dezabonat',
+          'bounced': 'Respins',
+          'complained': 'Plângere'
+        };
+        return labelMap[parent.status?.toLowerCase()] || 'Abonat';
+      },
+      locale: (parent) => parent.locale || 'ro-RO',
+      tags: (parent) => parent.tags || [],
+      source: (parent) => parent.source,
+      createdAt: (parent) => parent.created_at,
+      updatedAt: (parent) => parent.updated_at,
+      subscribedAt: (parent) => parent.subscribed_at,
+      unsubscribedAt: (parent) => parent.unsubscribed_at,
+      unsubscribeReason: (parent) => parent.unsubscribe_reason,
+      lastIp: (parent) => parent.last_ip,
+      lastUserAgent: (parent) => parent.last_user_agent,
+      consentVersion: (parent) => parent.consent_version,
+      consentAt: (parent) => parent.consent_at,
+      metadata: (parent) => parent.metadata || {}
+    },
+
     // Resolver-i pentru query-uri admin
     Query: {
+      adminNewsletterSubscribers: async (parent, args, context) => {
+        try {
+          // Verifică dacă utilizatorul este administrator
+          await requireAdmin(context, userService);
+
+          if (!newsletterRepository) {
+            throw new GraphQLError('NewsletterRepository nu este disponibil', {
+              extensions: { code: 'INTERNAL_ERROR' }
+            });
+          }
+
+          const { page = 1, limit = 10, sortField = 'CREATED_AT', sortDirection = 'DESC', filters = {} } = args;
+
+          // Validează argumentele
+          if (page < 1 || limit < 1 || limit > 100) {
+            throw new GraphQLError('Parametri invalizi pentru paginare', {
+              extensions: { code: 'BAD_REQUEST' }
+            });
+          }
+
+          // Obține abonații
+          const result = await newsletterRepository.getAllSubscribers({
+            page,
+            limit,
+            sortField,
+            sortDirection,
+            filters: filters || {}
+          });
+
+          // Calculează informațiile de paginare
+          const totalCount = result.totalCount || 0;
+          const totalPages = Math.ceil(totalCount / limit);
+          const hasNextPage = page < totalPages;
+          const hasPreviousPage = page > 1;
+
+          return {
+            subscribers: result.data || [],
+            pagination: {
+              totalCount,
+              totalPages,
+              currentPage: page,
+              hasNextPage,
+              hasPreviousPage
+            }
+          };
+        } catch (error) {
+          if (error instanceof GraphQLError) throw error;
+          throw new GraphQLError('Eroare internă la preluarea abonaților newsletter', {
+            extensions: { code: 'INTERNAL_ERROR' }
+          });
+        }
+      },
+
+      adminNewsletterSubscriberStatuses: async (parent, args, context) => {
+        try {
+          // Verifică dacă utilizatorul este administrator
+          await requireAdmin(context, userService);
+
+          // Returnează toate statusurile disponibile cu label-urile în română
+          return [
+            {
+              value: 'SUBSCRIBED',
+              label: 'Abonat',
+              description: 'Utilizatorul este abonat la newsletter'
+            },
+            {
+              value: 'UNSUBSCRIBED',
+              label: 'Dezabonat',
+              description: 'Utilizatorul s-a dezabonat de la newsletter'
+            },
+            {
+              value: 'BOUNCED',
+              label: 'Respins',
+              description: 'Email-ul a fost respins (bounce)'
+            },
+            {
+              value: 'COMPLAINED',
+              label: 'Plângere',
+              description: 'Utilizatorul a raportat email-ul ca spam'
+            }
+          ];
+        } catch (error) {
+          if (error instanceof GraphQLError) throw error;
+          throw new GraphQLError('Eroare internă la preluarea statusurilor', {
+            extensions: { code: 'INTERNAL_ERROR' }
+          });
+        }
+      },
+
       adminUsers: async (parent, args, context) => {
         try {
           // Verifică dacă utilizatorul este administrator
@@ -571,8 +697,16 @@ export function createAdminUsersResolvers(services) {
         try {
           await requireAdmin(context, userService);
 
-          // TODO: Implementează ștergerea utilizatorului
-          // ATENȚIE: Această operațiune este ireversibilă!
+          // Șterge utilizatorul din Supabase Auth (operațiune ireversibilă)
+          const { error } = await supabaseClient.auth.admin.deleteUser(userId);
+
+          if (error) {
+            throw new GraphQLError('Eroare la ștergerea utilizatorului', {
+              extensions: { code: 'DATABASE_ERROR', details: error.message }
+            });
+          }
+
+          // FKs către auth.users au ON DELETE CASCADE, deci datele corelate sunt curățate automat
           return {
             success: true,
             message: 'Utilizatorul a fost șters cu succes'
@@ -614,6 +748,60 @@ export function createAdminUsersResolvers(services) {
         } catch (error) {
           if (error instanceof GraphQLError) throw error;
           throw new GraphQLError('Eroare la demotarea utilizatorului', {
+            extensions: { code: 'INTERNAL_ERROR' }
+          });
+        }
+      },
+
+      // =====================================================
+      // ADMIN NEWSLETTER SUBSCRIBERS MUTATIONS
+      // =====================================================
+
+      adminNewsletterSubscribersDelete: async (parent, { subscriberId }, context) => {
+        try {
+          await requireAdmin(context, userService);
+
+          if (!newsletterRepository) {
+            throw new GraphQLError('NewsletterRepository nu este disponibil', {
+              extensions: { code: 'INTERNAL_ERROR' }
+            });
+          }
+
+          await newsletterRepository.deleteSubscriber(parseInt(subscriberId));
+
+          return {
+            success: true,
+            message: 'Abonatul a fost șters cu succes'
+          };
+        } catch (error) {
+          if (error instanceof GraphQLError) throw error;
+          throw new GraphQLError('Eroare la ștergerea abonatului', {
+            extensions: { code: 'INTERNAL_ERROR' }
+          });
+        }
+      },
+
+      adminNewsletterSubscribersUpdateStatus: async (parent, { input }, context) => {
+        try {
+          await requireAdmin(context, userService);
+
+          if (!newsletterRepository) {
+            throw new GraphQLError('NewsletterRepository nu este disponibil', {
+              extensions: { code: 'INTERNAL_ERROR' }
+            });
+          }
+
+          const { subscriberId, status } = input;
+
+          const updatedSubscriber = await newsletterRepository.updateSubscriberStatus(
+            parseInt(subscriberId),
+            status
+          );
+
+          return updatedSubscriber;
+        } catch (error) {
+          if (error instanceof GraphQLError) throw error;
+          throw new GraphQLError('Eroare la actualizarea statusului abonatului', {
             extensions: { code: 'INTERNAL_ERROR' }
           });
         }

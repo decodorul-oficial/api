@@ -4,10 +4,11 @@
  */
 
 import PaymentService from './PaymentService.js';
+import supabaseClient from '../../database/supabaseClient.js';
 
 class SubscriptionService {
-  constructor(supabaseClient) {
-    this.supabase = supabaseClient;
+  constructor(supabaseClientParam) {
+    this.supabase = supabaseClientParam || supabaseClient.getServiceClient();
     this.paymentService = new PaymentService();
   }
 
@@ -261,45 +262,47 @@ class SubscriptionService {
    */
   async handlePaymentSuccess(order, webhookData) {
     try {
-      // Update order status
-      await this.supabase
-        .from('orders')
-        .update({
-          status: 'SUCCEEDED',
-          payment_method_id: webhookData.paymentMethodId,
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', order.id);
+      // Ensure we have a subscription linked to the order before delegating to DB logic
+      let subscriptionId = order.subscription_id;
 
-      // Check if this is a conversion from trial
-      const isConvertingFromTrial = order.metadata?.is_converting_from_trial;
-      
-      if (isConvertingFromTrial) {
-        // Cancel existing trial subscription
-        await this.supabase
-          .from('subscriptions')
-          .update({
-            status: 'CANCELED',
-            canceled_at: new Date().toISOString(),
-            updated_at: new Date().toISOString()
-          })
-          .eq('user_id', order.user_id)
-          .eq('status', 'TRIALING');
-        
-        // Trial info is now managed in subscriptions table, no need to clear from profile
+      if (!subscriptionId) {
+        const subscription = await this.createOrUpdateSubscription(order, webhookData);
+        subscriptionId = subscription?.id;
+
+        if (subscriptionId) {
+          await this.supabase
+            .from('orders')
+            .update({ subscription_id: subscriptionId })
+            .eq('id', order.id);
+        }
       }
 
-      // Create or update subscription
-      const subscription = await this.createOrUpdateSubscription(order, webhookData);
+      // Call DB-side function to update order and activate subscription atomically
+      const transactionId = webhookData?.transactionId 
+        || webhookData?.ntpID 
+        || webhookData?.netopiaOrderId 
+        || order.netopia_order_id 
+        || null;
 
-      // Activate subscription
-      await this.activateSubscription(subscription.id, order.netopia_order_id, webhookData.paymentToken);
+      const { data: rpcResult, error: rpcError } = await this.supabase
+        .rpc('update_order_status_rpc', {
+          p_order_id: order.id,
+          p_status: 'SUCCEEDED',
+          p_transaction_id: String(transactionId || ''),
+          p_amount: order.amount,
+          p_currency: order.currency,
+          p_raw_data: webhookData || {}
+        });
+
+      if (rpcError || !rpcResult?.success) {
+        throw new Error(`DB update_order_status failed: ${rpcError?.message || JSON.stringify(rpcResult)}`);
+      }
 
       return {
-        action: isConvertingFromTrial ? 'Trial converted to paid subscription' : 'Subscription activated',
-        subscriptionId: subscription.id,
+        action: 'Order and subscription updated via DB function',
+        subscriptionId: subscriptionId || null,
         orderId: order.id,
-        convertedFromTrial: isConvertingFromTrial
+        dbResult: rpcResult
       };
 
     } catch (error) {
