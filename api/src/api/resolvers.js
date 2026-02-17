@@ -436,6 +436,7 @@ export function createResolvers(services) {
       status: (parent) => parent.status,
       checkoutUrl: (parent) => parent.checkout_url,
       paymentMethodId: (parent) => parent.payment_method_id,
+      billingDetails: (parent) => parent.billing_details,
       metadata: (parent) => parent.metadata,
       createdAt: (parent) => parent.created_at,
       updatedAt: (parent) => parent.updated_at
@@ -568,23 +569,26 @@ export function createResolvers(services) {
                 : args?.orderBy
           };
 
-          // Check subscription/trial status for limit > 10
+          // Check subscription/trial status for limit > 10 (internal API key bypass for server-to-server e.g. sitemap)
           if (normalizedArgs.limit && normalizedArgs.limit > 10) {
-            if (!context.user) {
+            if (context.isInternalRequest) {
+              const maxInternal = Math.min(500, Math.max(10, parseInt(process.env.INTERNAL_GET_STIRI_MAX_LIMIT, 10) || 100));
+              normalizedArgs.limit = Math.min(normalizedArgs.limit, maxInternal);
+            } else if (!context.user) {
               throw new GraphQLError('Pentru a afișa mai mult de 10 știri pe pagină, trebuie să fiți autentificat', {
                 extensions: { code: 'UNAUTHENTICATED' }
               });
-            }
-
-            // Check if user has active subscription or trial
-            const hasAccess = await hasHighLimitAccess(context, subscriptionService, userService);
-            if (!hasAccess) {
-              throw new GraphQLError('Pentru a afișa mai mult de 10 știri pe pagină, aveți nevoie de un abonament activ sau trial', {
-                extensions: { 
-                  code: 'SUBSCRIPTION_REQUIRED',
-                  message: 'Această funcționalitate necesită un abonament activ sau trial. Vă rugăm să vă abonați pentru a accesa mai multe știri pe pagină.'
-                }
-              });
+            } else {
+              // Check if user has active subscription or trial
+              const hasAccess = await hasHighLimitAccess(context, subscriptionService, userService);
+              if (!hasAccess) {
+                throw new GraphQLError('Pentru a afișa mai mult de 10 știri pe pagină, aveți nevoie de un abonament activ sau trial', {
+                  extensions: {
+                    code: 'SUBSCRIPTION_REQUIRED',
+                    message: 'Această funcționalitate necesită un abonament activ sau trial. Vă rugăm să vă abonați pentru a accesa mai multe știri pe pagină.'
+                  }
+                });
+              }
             }
           }
 
@@ -1085,8 +1089,11 @@ export function createResolvers(services) {
       },
 
       // Analiza de rețea a conexiunilor legislative
-      getLegislativeGraph: async (parent, { documentId, depth }, context) => {
+      getLegislativeGraph: async (parent, { documentId, depth, minConfidence, maxNodes, maxLinks }, context) => {
         try {
+          // Necesită utilizator autentificat cu abonament sau trial activ
+          requireTrialOrSubscription(context, true);
+
           // Validează ID-ul documentului
           const validatedId = validateGraphQLData(documentId, idSchema);
           
@@ -1095,7 +1102,7 @@ export function createResolvers(services) {
           const MAX_DEPTH = 3;
           const queryDepth = depth && depth > 0 ? Math.min(depth, MAX_DEPTH) : 1;
           
-          return await legislativeConnectionsService.getLegislativeGraph(validatedId, queryDepth);
+          return await legislativeConnectionsService.getLegislativeGraph(validatedId, queryDepth, minConfidence, maxNodes, maxLinks);
         } catch (error) {
           throw error;
         }

@@ -101,6 +101,25 @@ export function injectionPreventionMiddleware(req, res, next) {
  * @param {Function} next - Next function
  */
 export function ipRateLimitMiddleware(req, res, next) {
+  // Verificăm dacă request-ul are o cheie internă din whitelist pentru a ignora rate limiting
+  const whitelist = process.env.WHITELIST_INTERNAL_API_KEY;
+  if (whitelist) {
+    const allowedKeys = whitelist.split(',').map(k => k.trim()).filter(Boolean);
+    // Verificăm atât header-ul standard X-Internal-API-Key cât și varianta simplă
+    const providedHeader = req.headers['x-internal-api-key'] || req.headers['internal_api_key'];
+    const providedKey = Array.isArray(providedHeader) ? providedHeader[0] : providedHeader;
+
+    // DEBUG: Log red for received key
+    if (!providedKey) {
+      console.log('\x1b[31m[DEBUG IP RATE LIMIT] No Internal API Key provided in headers\x1b[0m');
+    }
+
+    if (providedKey && allowedKeys.includes(providedKey)) {
+      // Ignorăm rate limiting pentru cheile din whitelist
+      return next();
+    }
+  }
+
   const clientIP = req.ip || req.connection.remoteAddress;
   const now = Date.now();
   

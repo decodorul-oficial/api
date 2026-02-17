@@ -79,10 +79,14 @@ Construiește graficul de conexiuni legislative cu o adâncime specificată.
 **Parametri:**
 - `p_document_id`: ID-ul documentului de pornire
 - `p_depth`: Adâncimea de explorare (implicit 1, **MAXIM 3** pentru securitate)
+- `p_min_confidence`: Filtrul minim de încredere (default 0.5) pentru a exclude "zgomotul" (false positives)
 
 **Returnează:**
 - `nodes`: Lista nodurilor (acte normative)
 - `links`: Lista conexiunilor între noduri
+
+**Îmbunătățiri Recente (Noiembrie 2025):**
+S-a adăugat filtrarea `p_min_confidence >= 0.5` pentru a rezolva o anomalie în care documente generice (ex: mențiuni "Guvernul") creau mii de legături false cu scor scăzut (0.48).
 
 #### `get_legislative_connections_stats()`
 Obține statistici despre conexiunile legislative.

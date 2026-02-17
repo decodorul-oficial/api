@@ -53,6 +53,7 @@ import cors from 'cors';
 import helmet from 'helmet';
 import depthLimit from 'graphql-depth-limit';
 import http from 'http';
+import crypto from 'crypto';
 
 // Utilitar simplu pentru a extrage o valoare din header-ul Cookie fără dependențe
 function getCookieValue(cookieHeader, name) {
@@ -272,10 +273,26 @@ async function initializeServer() {
       expressMiddleware(server, {
         context: async ({ req }) => {
           // Contextul GraphQL - utilizatorul este setat de middleware-ul de autentificare
+          const isInternalRequest = (() => {
+            const expected = process.env.INTERNAL_API_KEY;
+            if (!expected) return false;
+            const raw = req?.headers?.['x-internal-api-key'];
+            if (raw == null || raw === '') return false;
+            const provided = String(raw);
+            const a = Buffer.from(provided, 'utf8');
+            const b = Buffer.from(expected, 'utf8');
+            if (a.length !== b.length) return false;
+            try {
+              return crypto.timingSafeEqual(a, b);
+            } catch (_) {
+              return false;
+            }
+          })();
           return {
             user: req.user,
             supabase: supabaseClient.getServiceClient(),
-            req
+            req,
+            isInternalRequest
           };
         }
       })
