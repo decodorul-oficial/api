@@ -60,6 +60,7 @@ class SubscriptionService {
           amount: tier.price,
           currency: tier.currency,
           status: 'PENDING',
+          billing_details: options.billingDetails,
           metadata: {
             tier_id: tierId,
             tier_name: tier.name,
@@ -83,7 +84,7 @@ class SubscriptionService {
         description: `Subscription: ${tier.display_name}`,
         customerEmail: options.customerEmail,
         customerPhone: options.customerPhone,
-        billingAddress: options.billingAddress,
+        billingAddress: options.billingDetails,
         shippingAddress: options.shippingAddress,
         items: [{
           name: tier.display_name,

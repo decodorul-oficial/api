@@ -12,12 +12,50 @@ export class LegislativeConnectionsService {
   }
 
   /**
+   * Generează o descriere în limbaj natural pentru o conexiune
+   * @param {Object} link - Conexiunea
+   * @param {Array} nodes - Lista tuturor nodurilor
+   * @returns {String} Descrierea în limbaj natural
+   */
+  generateConnectionDescription(link, nodes) {
+    const sourceNode = nodes.find(n => n.id === String(link.source));
+    const targetNode = nodes.find(n => n.id === String(link.target));
+    
+    if (!sourceNode || !targetNode) {
+      return '';
+    }
+
+    const relationshipDescriptions = {
+      'modifică': 'modifică prevederile',
+      'completează': 'completează prevederile',
+      'abrogă': 'abrogă',
+      'face referire la': 'face referire la',
+      'derogă': 'derogă temporar de la',
+      'suspendă': 'suspendă temporar',
+      'face referire la (extern)': 'face referire la'
+    };
+
+    const verb = relationshipDescriptions[link.type] || 'face referire la';
+    
+    // Extrage numărul actului țintă pentru a face descrierea mai clară
+    const targetNumberMatch = targetNode.title.match(/(?:nr\.?|Nr\.?|Nr)\s*(\d+)\/(\d{4})/i);
+    const targetAct = targetNumberMatch 
+      ? `actul ${targetNumberMatch[1]}/${targetNumberMatch[2]}`
+      : 'acest act';
+
+    return `Acest act ${verb} ${targetAct}`;
+  }
+
+  /**
    * Obține graficul de conexiuni legislative pentru un document dat
    * @param {number} documentId - ID-ul documentului sursă
    * @param {number} depth - Adâncimea de explorare (implicit 1)
+   * @param {number} minConfidence - Scorul minim de încredere (implicit 0.6)
+   * @param {number} maxNodes - Numărul maxim de noduri (implicit 40)
+   * @param {number} maxLinks - Numărul maxim de conexiuni (implicit 20)
    * @returns {Promise<Object>} Graficul cu noduri și conexiuni
    */
-  async getLegislativeGraph(documentId, depth = 1) {
+  async getLegislativeGraph(documentId, depth = 1, minConfidence = 0.6, maxNodes = 40, maxLinks = 20) {
     try {
       // Validează parametrii
       if (!documentId || isNaN(Number(documentId))) {
@@ -36,11 +74,14 @@ export class LegislativeConnectionsService {
         });
       }
 
-      // Apelează funcția din baza de date
+      // Apelează funcția din baza de date cu filtrul de încredere
       const { data, error } = await this.supabase
         .rpc('get_legislative_graph', {
           p_document_id: Number(documentId),
-          p_depth: depth
+          p_depth: depth,
+          p_min_confidence: minConfidence,
+          p_max_nodes: maxNodes,
+          p_max_links: maxLinks
         });
 
       if (error) {
@@ -63,19 +104,89 @@ export class LegislativeConnectionsService {
       const nodes = result.nodes || [];
       const links = result.links || [];
 
-      return {
-        nodes: nodes.map(node => ({
+      // Transformă tipurile de relații în limbaj natural
+      const relationshipLabels = {
+        'modifică': 'Modifică',
+        'completează': 'Completează',
+        'abrogă': 'Abrogă',
+        'face referire la': 'Face referire la',
+        'derogă': 'Derogă',
+        'suspendă': 'Suspendă',
+        'face referire la (extern)': 'Face referire la (act extern)'
+      };
+
+      // Transformă confidence score în indicatori vizuali
+      const getConfidenceLabel = (confidence) => {
+        if (confidence >= 0.9) return { label: 'Foarte probabil', level: 'high' };
+        if (confidence >= 0.7) return { label: 'Probabil', level: 'medium' };
+        return { label: 'Posibil', level: 'low' };
+      };
+
+      // Extrage informații relevante din titlu
+      const extractDocumentInfo = (title) => {
+        // Extrage numărul actului (ex: "nr. 890/2025")
+        const numberMatch = title.match(/(?:nr\.?|Nr\.?|Nr)\s*(\d+)\/(\d{4})/i);
+        const number = numberMatch ? `${numberMatch[1]}/${numberMatch[2]}` : null;
+        
+        // Extrage tipul actului (Ordin, Lege, Hotărâre, etc.)
+        const typeMatch = title.match(/\b(Ordin|Lege|Hotărâre|Decret|Decizie|OUG|OG|PL)\b/i);
+        const actType = typeMatch ? typeMatch[1] : null;
+        
+        // Creează un titlu scurt pentru afișare
+        let shortTitle = title;
+        if (actType && number) {
+          shortTitle = `${actType} ${number}`;
+          // Dacă mai sunt detalii relevante în titlu, le adăugăm
+          const detailsMatch = title.match(/[|](.+)/);
+          if (detailsMatch && detailsMatch[1].length < 100) {
+            shortTitle += ` | ${detailsMatch[1].trim()}`;
+          }
+        } else if (title.length > 80) {
+          shortTitle = title.substring(0, 80) + '...';
+        }
+
+        return {
+          shortTitle,
+          actNumber: number,
+          actType: actType,
+          fullTitle: title
+        };
+      };
+
+      // Transformă nodurile cu informații îmbunătățite
+      const enrichedNodes = nodes.map(node => {
+        const docInfo = extractDocumentInfo(node.title);
+        return {
           id: String(node.id),
           title: node.title,
+          shortTitle: docInfo.shortTitle,
+          actNumber: docInfo.actNumber,
+          actType: docInfo.actType,
           publicationDate: node.publicationDate,
           type: node.type
-        })),
-        links: links.map(link => ({
+        };
+      });
+
+      // Transformă conexiunile cu informații îmbunătățite
+      const enrichedLinks = links.map(link => {
+        const confidenceInfo = getConfidenceLabel(link.confidence);
+        const relationshipLabel = relationshipLabels[link.type] || link.type;
+        
+        return {
           source: String(link.source),
           target: String(link.target),
           type: link.type,
-          confidence: link.confidence
-        }))
+          typeLabel: relationshipLabel,
+          confidence: link.confidence,
+          confidenceLabel: confidenceInfo.label,
+          confidenceLevel: confidenceInfo.level,
+          description: this.generateConnectionDescription(link, nodes)
+        };
+      });
+
+      return {
+        nodes: enrichedNodes,
+        links: enrichedLinks
       };
     } catch (error) {
       if (error instanceof GraphQLError) {

@@ -120,39 +120,54 @@ CREATE OR REPLACE FUNCTION public.get_most_read_stiri(
 LANGUAGE plpgsql SECURITY DEFINER
 AS $$
 BEGIN
-  IF p_period IS NULL OR p_period = '' OR lower(p_period) = 'all' THEN
+  -- Total agregat (all-time)
+  IF p_period IS NULL OR p_period = '' OR lower(p_period) IN ('all', 'total') THEN
     RETURN QUERY
     SELECT s.id, s.title, s.publication_date, s.content, s.created_at, s.filename, COALESCE(s.view_count, 0) AS view_count
     FROM public.stiri s
     ORDER BY COALESCE(s.view_count, 0) DESC, s.id DESC
     LIMIT p_limit;
-  ELSIF lower(p_period) = '24h' THEN
+
+  -- Ultimele 24 de ore (aliasuri: 24h, 1d, day)
+  -- Filtrează și după publication_date >= ultimele 24h
+  ELSIF lower(p_period) IN ('24h', '1d', 'day') THEN
     RETURN QUERY
     SELECT s.id, s.title, s.publication_date, s.content, s.created_at, s.filename,
            COALESCE(COUNT(nv.id), 0) AS view_count
     FROM public.stiri s
     LEFT JOIN public.news_views nv ON nv.news_id = s.id AND nv.viewed_at >= NOW() - INTERVAL '24 hours'
+    WHERE s.publication_date >= CURRENT_DATE - INTERVAL '1 day'
     GROUP BY s.id
     ORDER BY COALESCE(COUNT(nv.id), 0) DESC, s.id DESC
     LIMIT p_limit;
-  ELSIF lower(p_period) = '7d' THEN
+
+  -- Ultimele 7 zile (aliasuri: 7d, 1w, week)
+  -- Filtrează și după publication_date >= ultimele 7 zile
+  ELSIF lower(p_period) IN ('7d', '1w', 'week') THEN
     RETURN QUERY
     SELECT s.id, s.title, s.publication_date, s.content, s.created_at, s.filename,
            COALESCE(COUNT(nv.id), 0) AS view_count
     FROM public.stiri s
     LEFT JOIN public.news_views nv ON nv.news_id = s.id AND nv.viewed_at >= NOW() - INTERVAL '7 days'
+    WHERE s.publication_date >= CURRENT_DATE - INTERVAL '7 days'
     GROUP BY s.id
     ORDER BY COALESCE(COUNT(nv.id), 0) DESC, s.id DESC
     LIMIT p_limit;
-  ELSIF lower(p_period) = '30d' OR lower(p_period) = '30days' OR lower(p_period) = 'month' THEN
+
+  -- Ultimele 30 de zile (aliasuri: 30d, 30days, 1m, month)
+  -- Filtrează și după publication_date >= ultimele 30 zile
+  ELSIF lower(p_period) IN ('30d', '30days', '1m', 'month') THEN
     RETURN QUERY
     SELECT s.id, s.title, s.publication_date, s.content, s.created_at, s.filename,
            COALESCE(COUNT(nv.id), 0) AS view_count
     FROM public.stiri s
     LEFT JOIN public.news_views nv ON nv.news_id = s.id AND nv.viewed_at >= NOW() - INTERVAL '30 days'
+    WHERE s.publication_date >= CURRENT_DATE - INTERVAL '30 days'
     GROUP BY s.id
     ORDER BY COALESCE(COUNT(nv.id), 0) DESC, s.id DESC
     LIMIT p_limit;
+
+  -- Fallback: total agregat
   ELSE
     RETURN QUERY
     SELECT s.id, s.title, s.publication_date, s.content, s.created_at, s.filename, COALESCE(s.view_count, 0) AS view_count
@@ -163,7 +178,7 @@ BEGIN
 END;
 $$;
 
-COMMENT ON FUNCTION public.get_most_read_stiri(TEXT, INT) IS 'Returnează lista celor mai citite știri, agregând după perioada specificată';
+COMMENT ON FUNCTION public.get_most_read_stiri(TEXT, INT) IS 'Returnează cele mai citite știri pe perioadă, filtrând atât după vizualizări cât și după data publicării: 24h/1d/day, 7d/1w/week, 30d/30days/1m/month sau all-time.';
 
 -- Trigger-ul pentru a popula automat tabela profiles
 DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;

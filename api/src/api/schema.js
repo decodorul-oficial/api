@@ -136,6 +136,9 @@ export const typeDefs = `#graphql
   type LegislativeNode {
     id: ID!
     title: String!
+    shortTitle: String
+    actNumber: String
+    actType: String
     publicationDate: String!
     type: String!
   }
@@ -144,7 +147,11 @@ export const typeDefs = `#graphql
     source: ID!
     target: ID!
     type: String!
+    typeLabel: String!
     confidence: Float!
+    confidenceLabel: String!
+    confidenceLevel: String!
+    description: String!
   }
 
   type LegislativeGraph {
@@ -429,6 +436,9 @@ export const typeDefs = `#graphql
     getLegislativeGraph(
       documentId: ID!
       depth: Int
+      minConfidence: Float
+      maxNodes: Int
+      maxLinks: Int
     ): LegislativeGraph!
 
     # Statistici despre conexiunile legislative
@@ -559,9 +569,23 @@ export const typeDefs = `#graphql
     status: OrderStatus!
     checkoutUrl: String
     paymentMethodId: ID
+    billingDetails: BillingDetails
     metadata: JSON
     createdAt: String!
     updatedAt: String!
+  }
+
+  type BillingDetails {
+    firstName: String
+    lastName: String
+    companyName: String
+    cui: String
+    regCom: String
+    address: String
+    city: String
+    county: String
+    country: String
+    zipCode: String
   }
 
   # Payload pentru updateOrderStatus
@@ -663,9 +687,22 @@ export const typeDefs = `#graphql
     trialDays: Int
     customerEmail: String
     customerPhone: String
-    billingAddress: AddressInput
+    billingDetails: BillingDetailsInput
     shippingAddress: AddressInput
     metadata: JSON
+  }
+
+  input BillingDetailsInput {
+    firstName: String
+    lastName: String
+    companyName: String
+    cui: String
+    regCom: String
+    address: String
+    city: String
+    county: String
+    country: String
+    zipCode: String
   }
 
   input AddressInput {

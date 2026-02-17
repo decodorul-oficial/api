@@ -25,6 +25,28 @@ export function createRateLimiterMiddleware(userRepository) {
   return async (requestContext) => {
     try {
       const { contextValue } = requestContext;
+
+      // Verificăm dacă request-ul are o cheie internă din whitelist pentru a ignora rate limiting
+      const req = contextValue.req;
+      if (req) {
+        const whitelist = process.env.WHITELIST_INTERNAL_API_KEY;
+        if (whitelist) {
+          const allowedKeys = whitelist.split(',').map(k => k.trim()).filter(Boolean);
+          const providedHeader = req.headers['x-internal-api-key'] || req.headers['internal_api_key'];
+          const providedKey = Array.isArray(providedHeader) ? providedHeader[0] : providedHeader;
+
+          // DEBUG: Log red for received key
+          if (providedKey) {
+            console.log('\x1b[31m[DEBUG GQL RATE LIMIT] Received Key:', providedKey, '| Whitelist:', allowedKeys.join(','), '\x1b[0m');
+          } else {
+             console.log('\x1b[31m[DEBUG GQL RATE LIMIT] No Internal API Key provided in headers\x1b[0m');
+          }
+
+          if (providedKey && allowedKeys.includes(providedKey)) {
+            return;
+          }
+        }
+      }
       
       // Dacă nu există utilizator autentificat, nu aplicăm rate limiting
       if (!contextValue.user) {
