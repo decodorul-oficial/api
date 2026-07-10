@@ -2124,6 +2124,7 @@ export function createResolvers(services) {
         }
       },
 
+      reactivateSubscription: async (parent, { input }, context) => {
         try {
           if (!context.user) {
             throw new GraphQLError('Utilizator neautentificat', {
