@@ -678,6 +678,13 @@ export class StiriService {
    * @returns {Object} Știrea în format GraphQL
    */
   transformStireForGraphQL(stire) {
+    const content = stire.content && typeof stire.content === 'object' ? stire.content : {};
+    const category = typeof content.category === 'string'
+      ? content.category
+      : typeof stire.category === 'string'
+        ? stire.category
+        : null;
+
     return {
       id: stire.id,
       title: stire.title,
@@ -689,7 +696,8 @@ export class StiriService {
       updatedAt: stire.updated_at,
       filename: stire.filename,
       viewCount: stire.view_count ?? 0,
-      predictedViews: stire.predicted_views ?? null
+      predictedViews: stire.predicted_views ?? null,
+      category,
     };
   }
 }

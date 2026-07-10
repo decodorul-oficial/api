@@ -860,12 +860,13 @@ export function createResolvers(services) {
         }
       },
 
-      // Categorii distincte pentru meniu
+      // Categorii distincte pentru meniu (sitemap: bypass cu cheie internă)
       getCategories: async (parent, { limit }, context) => {
         try {
-          // Verifică că utilizatorul are trial activ sau abonament valid
-          requireTrialOrSubscription(context, true);
-          
+          if (!context.isInternalRequest) {
+            requireTrialOrSubscription(context, true);
+          }
+
           const safeLimit = typeof limit === 'number' && limit > 0 ? limit : 100;
           return await stiriService.getCategories({ limit: safeLimit });
         } catch (error) {
