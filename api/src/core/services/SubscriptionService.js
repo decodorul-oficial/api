@@ -1,15 +1,24 @@
 /**
- * SubscriptionService - Handles subscription business logic
- * Manages subscriptions, orders, payment methods, and webhook processing
+ * SubscriptionService — comenzi, abonamente, Stripe Checkout / PaymentIntent.
+ * Plăți Stripe (consum API): docs/STRIPE_PAYMENTS.md
  */
 
-import PaymentService from './PaymentService.js';
+import StripePaymentService from './StripePaymentService.js';
 import supabaseClient from '../../database/supabaseClient.js';
+import { orderAmountToStripeMinorUnits } from '../../utils/stripeAmount.js';
+import { assertPaymentsEnabled } from '../../utils/paymentsEnabled.js';
 
 class SubscriptionService {
   constructor(supabaseClientParam) {
     this.supabase = supabaseClientParam || supabaseClient.getServiceClient();
-    this.paymentService = new PaymentService();
+    this.stripePaymentService = null;
+  }
+
+  _getStripePaymentService() {
+    if (!this.stripePaymentService) {
+      this.stripePaymentService = new StripePaymentService();
+    }
+    return this.stripePaymentService;
   }
 
   /**
@@ -21,6 +30,8 @@ class SubscriptionService {
    */
   async startCheckout(userId, tierId, options = {}) {
     try {
+      assertPaymentsEnabled();
+
       // Get subscription tier details
       const { data: tier, error: tierError } = await this.supabase
         .from('subscription_tiers')
@@ -31,6 +42,14 @@ class SubscriptionService {
 
       if (tierError || !tier) {
         throw new Error('Invalid subscription tier');
+      }
+
+      const resolvedStripePriceId = options.stripePriceId || tier.stripe_price_id || null;
+
+      if (!resolvedStripePriceId && !options.stripeProductId) {
+        throw new Error(
+          'Stripe: lipsește Price ID. Setează payments.subscription_tiers.stripe_price_id pentru acest tier sau trimite stripePriceId / stripeProductId în startCheckout.'
+        );
       }
 
       // Check if user is currently in trial and converting to paid
@@ -52,7 +71,8 @@ class SubscriptionService {
         new Date() < new Date(trialSubscription.trial_end) &&
         currentProfile?.subscription_tier === 'pro';
 
-      // Create order record
+      // payments.orders: payment_provider_reference nullable; se setează după răspunsul gateway.
+      // public.orders = VIEW; trebuie să expună billing_details (migrație aplicată în Supabase + în repo).
       const { data: order, error: orderError } = await this.supabase
         .from('orders')
         .insert({
@@ -60,12 +80,11 @@ class SubscriptionService {
           amount: tier.price,
           currency: tier.currency,
           status: 'PENDING',
-          billing_details: options.billingDetails,
+          billing_details: options.billingDetails || {},
           metadata: {
             tier_id: tierId,
             tier_name: tier.name,
             is_converting_from_trial: isConvertingFromTrial,
-            trial_tier_id: currentProfile?.trial_tier_id,
             ...options.metadata
           }
         })
@@ -73,10 +92,11 @@ class SubscriptionService {
         .single();
 
       if (orderError) {
-        throw new Error('Failed to create order');
+        console.error('orders.insert failed:', orderError.message, orderError.code, orderError.details, orderError.hint);
+        throw new Error(orderError.message || 'Failed to create order');
       }
 
-      // Prepare order data for Netopia
+      // Prepare order data for Stripe
       const orderData = {
         orderId: order.id,
         amount: tier.price,
@@ -97,22 +117,27 @@ class SubscriptionService {
           userId,
           tierId,
           subscriptionType: 'recurring',
-          interval: tier.interval
+          interval: tier.interval,
+          stripePriceId: resolvedStripePriceId || undefined,
+          stripeProductId: options.stripeProductId,
+          stripeCheckoutMode: options.stripeCheckoutMode,
+          stripeSuccessUrl: options.stripeSuccessUrl
         }
       };
 
-      // Create Netopia order
-      const paymentResult = await this.paymentService.createOrder(orderData);
+      const paymentResult = await this._getStripePaymentService().createOrder(orderData);
 
-      // Update order with Netopia details
+      const paymentProviderReference = paymentResult.paymentProviderReference || paymentResult.sessionId;
+
+      // Update order cu ID sesiune / tranzacție gateway
       await this.supabase
         .from('orders')
         .update({
-          netopia_order_id: paymentResult.netopiaOrderId,
+          payment_provider_reference: paymentProviderReference,
           checkout_url: paymentResult.checkoutUrl,
           metadata: {
             ...order.metadata,
-            netopia_order_id: paymentResult.netopiaOrderId,
+            payment_provider_reference: paymentProviderReference,
             expires_at: paymentResult.expiresAt
           }
         })
@@ -122,7 +147,7 @@ class SubscriptionService {
       await this.logPaymentEvent({
         orderId: order.id,
         eventType: 'ORDER_CREATED',
-        netopiaOrderId: paymentResult.netopiaOrderId,
+        paymentProviderReference,
         amount: tier.price,
         currency: tier.currency,
         rawPayload: orderData
@@ -132,6 +157,7 @@ class SubscriptionService {
         orderId: order.id,
         checkoutUrl: paymentResult.checkoutUrl,
         expiresAt: paymentResult.expiresAt,
+        sessionId: paymentResult.sessionId || paymentProviderReference,
         rawResponse: paymentResult.rawResponse
       };
 
@@ -142,117 +168,60 @@ class SubscriptionService {
   }
 
   /**
-   * Process Netopia webhook (IPN)
-   * @param {Object} webhookData - Webhook payload
-   * @returns {Object} Processing result
+   * PaymentIntent pentru Stripe Elements: validează comanda și suma, creează intent pe Stripe.
+   * @param {string} userId
+   * @param {string} orderId
+   * @param {number} amountMinor - unități minore Stripe (trebuie să coincidă cu order.amount)
+   * @returns {Promise<{ clientSecret: string }>}
    */
-  async processWebhook(webhookData) {
-    try {
-      // Process webhook through payment service
-      const webhookResult = await this.paymentService.processWebhook(webhookData);
-      
-      if (!webhookResult.success) {
-        throw new Error('Webhook processing failed');
-      }
+  async createPaymentIntent(userId, orderId, amountMinor) {
+    assertPaymentsEnabled();
 
-      const { data } = webhookResult;
-      const { netopiaOrderId, status, amount, currency } = data;
+    const { data: order, error } = await this.supabase
+      .from('orders')
+      .select('*')
+      .eq('id', orderId)
+      .eq('user_id', userId)
+      .single();
 
-      // Check idempotency
-      const idempotencyKey = this.paymentService.generateIdempotencyKey(
-        netopiaOrderId,
-        'WEBHOOK_RECEIVED',
-        webhookData.signature
-      );
-
-      const { data: existingWebhook } = await this.supabase
-        .from('webhook_processing')
-        .select('id, status')
-        .eq('netopia_order_id', netopiaOrderId)
-        .eq('event_type', 'WEBHOOK_RECEIVED')
-        .eq('signature_hash', idempotencyKey)
-        .single();
-
-      if (existingWebhook) {
-        return { processed: false, reason: 'Already processed' };
-      }
-
-      // Insert webhook processing record
-      const { error: webhookError } = await this.supabase
-        .from('webhook_processing')
-        .insert({
-          netopia_order_id: netopiaOrderId,
-          event_type: 'WEBHOOK_RECEIVED',
-          signature_hash: idempotencyKey,
-          status: 'PROCESSING'
-        });
-
-      if (webhookError) {
-        throw new Error('Failed to record webhook processing');
-      }
-
-      // Get order details
-      const { data: order, error: orderError } = await this.supabase
-        .from('orders')
-        .select('*')
-        .eq('netopia_order_id', netopiaOrderId)
-        .single();
-
-      if (orderError || !order) {
-        throw new Error('Order not found');
-      }
-
-      // Process based on status
-      let result;
-      switch (status) {
-        case 'SUCCEEDED':
-          result = await this.handlePaymentSuccess(order, data);
-          break;
-        case 'FAILED':
-          result = await this.handlePaymentFailure(order, data);
-          break;
-        case 'CANCELED':
-          result = await this.handlePaymentCanceled(order, data);
-          break;
-        default:
-          result = { processed: true, action: 'No action required' };
-      }
-
-      // Update webhook processing status
-      await this.supabase
-        .from('webhook_processing')
-        .update({ status: 'SUCCEEDED' })
-        .eq('netopia_order_id', netopiaOrderId)
-        .eq('signature_hash', idempotencyKey);
-
-      // Log webhook event
-      await this.logPaymentEvent({
-        orderId: order.id,
-        eventType: 'WEBHOOK_PROCESSED',
-        netopiaOrderId,
-        amount,
-        currency,
-        rawPayload: data
-      });
-
-      return { processed: true, result };
-
-    } catch (error) {
-      console.error('SubscriptionService.processWebhook error:', error);
-      
-      // Update webhook processing status to failed
-      if (webhookData.netopiaOrderId) {
-        await this.supabase
-          .from('webhook_processing')
-          .update({ 
-            status: 'FAILED',
-            error_message: error.message
-          })
-          .eq('netopia_order_id', webhookData.netopiaOrderId);
-      }
-
-      throw error;
+    if (error || !order) {
+      throw new Error('Comanda nu a fost găsită sau nu aparține utilizatorului');
     }
+
+    if (order.status !== 'PENDING' && order.status !== 'PROCESSING') {
+      throw new Error(`Comanda nu poate fi plătită (status: ${order.status})`);
+    }
+
+    const expectedMinor = orderAmountToStripeMinorUnits(order.amount, order.currency);
+    if (expectedMinor == null || amountMinor !== expectedMinor) {
+      throw new Error(
+        `Suma nu corespunde comenzii. Trimite ${expectedMinor} (unități minore Stripe pentru ${order.currency}).`
+      );
+    }
+
+    const stripe = this._getStripePaymentService();
+    const { clientSecret, paymentIntentId } = await stripe.createPaymentIntent({
+      orderId: order.id,
+      amount: amountMinor,
+      currency: order.currency
+    });
+
+    const nowIso = new Date().toISOString();
+    const meta = {
+      ...(order.metadata || {}),
+      stripe_payment_intent_id: paymentIntentId
+    };
+    await this.supabase
+      .from('orders')
+      .update({
+        status: 'PROCESSING',
+        payment_provider_reference: paymentIntentId,
+        metadata: meta,
+        updated_at: nowIso
+      })
+      .eq('id', order.id);
+
+    return { clientSecret };
   }
 
   /**
@@ -279,10 +248,9 @@ class SubscriptionService {
       }
 
       // Call DB-side function to update order and activate subscription atomically
-      const transactionId = webhookData?.transactionId 
-        || webhookData?.ntpID 
-        || webhookData?.netopiaOrderId 
-        || order.netopia_order_id 
+      const transactionId = webhookData?.transactionId
+        || webhookData?.paymentProviderReference
+        || order.payment_provider_reference
         || null;
 
       const { data: rpcResult, error: rpcError } = await this.supabase
@@ -313,6 +281,153 @@ class SubscriptionService {
   }
 
   /**
+   * Plată reușită din webhook Stripe: subscriptions + payments.update_order_status (RPC) + profil (activateSubscription).
+   *
+   * @param {Object} order - rând orders (metadata.tier_id de la startCheckout)
+   * @param {{ transactionId?: string, rawData?: object }} stripePayload
+   */
+  async handleStripePaymentSuccess(order, { transactionId, rawData }) {
+    const stripe = this._getStripePaymentService();
+    const { stripeCustomerId, stripeSubscriptionId } = stripe.extractCustomerAndSubscriptionIds(rawData || {});
+
+    const webhookData = {
+      transactionId: transactionId || order.payment_provider_reference,
+      paymentProviderReference: order.payment_provider_reference,
+      paymentToken: null
+    };
+
+    let subscriptionId = order.subscription_id;
+
+    if (!subscriptionId) {
+      const subscription = await this.createOrUpdateSubscription(order, webhookData, {
+        stripeSubscriptionId
+      });
+      subscriptionId = subscription?.id;
+      if (subscriptionId) {
+        await this.supabase
+          .from('orders')
+          .update({ subscription_id: subscriptionId })
+          .eq('id', order.id);
+      }
+    } else if (stripeSubscriptionId) {
+      await this.supabase
+        .from('subscriptions')
+        .update({
+          stripe_subscription_id: stripeSubscriptionId,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', subscriptionId);
+    }
+
+    if (stripeCustomerId) {
+      await this.supabase
+        .from('profiles')
+        .update({
+          stripe_customer_id: stripeCustomerId,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', order.user_id);
+    }
+
+    const txId = String(
+      transactionId
+      || webhookData.paymentProviderReference
+      || order.payment_provider_reference
+      || ''
+    );
+
+    const payloadForDb =
+      rawData && typeof rawData === 'object' && !Array.isArray(rawData)
+        ? rawData
+        : { source: 'stripe_webhook', ...webhookData };
+
+    const { data: rpcResult, error: rpcError } = await this.supabase.rpc('update_order_status_rpc', {
+      p_order_id: order.id,
+      p_status: 'SUCCEEDED',
+      p_transaction_id: txId,
+      p_amount: order.amount,
+      p_currency: order.currency,
+      p_raw_data: payloadForDb
+    });
+
+    if (rpcError || !rpcResult?.success) {
+      throw new Error(`DB update_order_status failed: ${rpcError?.message || JSON.stringify(rpcResult)}`);
+    }
+
+    const { data: orderRow } = await this.supabase
+      .from('orders')
+      .select('subscription_id')
+      .eq('id', order.id)
+      .single();
+
+    if (orderRow?.subscription_id) {
+      try {
+        await this.activateSubscription(
+          orderRow.subscription_id,
+          order.payment_provider_reference || txId,
+          null,
+          { stripeSubscriptionId }
+        );
+      } catch (e) {
+        console.warn('SubscriptionService.handleStripePaymentSuccess activateSubscription:', e?.message || e);
+      }
+    }
+
+    return {
+      action: 'Stripe webhook: order + subscription + profile',
+      subscriptionId: orderRow?.subscription_id || subscriptionId || null,
+      orderId: order.id,
+      dbResult: rpcResult
+    };
+  }
+
+  /**
+   * Fallback post-redirect: reconciliază statusul unei comenzi Stripe folosind Checkout Session.
+   * Se folosește când UI-ul revine din Stripe dar webhook-ul nu a fost procesat încă.
+   *
+   * @param {Object} order
+   * @returns {Promise<{ reconciled: boolean, reason?: string, status?: string }>}
+   */
+  async reconcileStripeCheckoutOrder(order) {
+    const sessionId = order?.payment_provider_reference;
+    if (!sessionId || typeof sessionId !== 'string' || !sessionId.startsWith('cs_')) {
+      return { reconciled: false, reason: 'Order is not linked to a Stripe Checkout session' };
+    }
+
+    const stripe = this._getStripePaymentService();
+    const session = await stripe.retrieveCheckoutSession(sessionId);
+
+    if (!session) {
+      return { reconciled: false, reason: 'Stripe session not found' };
+    }
+
+    if (session.payment_status === 'paid' || session.status === 'complete') {
+      await this.handleStripePaymentSuccess(order, {
+        transactionId: session.payment_intent || session.id,
+        rawData: {
+          source: 'stripe_confirm_payment_fallback',
+          checkout_session: session
+        }
+      });
+      return { reconciled: true, status: 'SUCCEEDED' };
+    }
+
+    if (session.status === 'expired') {
+      await this.supabase
+        .from('orders')
+        .update({
+          status: 'CANCELED',
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', order.id)
+        .neq('status', 'SUCCEEDED');
+      return { reconciled: true, status: 'CANCELED' };
+    }
+
+    return { reconciled: false, reason: `Stripe session still pending (${session.status}/${session.payment_status})` };
+  }
+
+  /**
    * Handle failed payment
    * @param {Object} order - Order record
    * @param {Object} webhookData - Webhook data
@@ -333,7 +448,7 @@ class SubscriptionService {
       await this.logPaymentEvent({
         orderId: order.id,
         eventType: 'PAYMENT_FAILED',
-        netopiaOrderId: order.netopia_order_id,
+        paymentProviderReference: order.payment_provider_reference,
         amount: order.amount,
         currency: order.currency,
         rawPayload: webhookData
@@ -384,8 +499,9 @@ class SubscriptionService {
    * @param {Object} webhookData - Webhook data
    * @returns {Object} Subscription
    */
-  async createOrUpdateSubscription(order, webhookData) {
+  async createOrUpdateSubscription(order, webhookData, stripeIds = {}) {
     try {
+      const { stripeSubscriptionId } = stripeIds;
       const { data: tier } = await this.supabase
         .from('subscription_tiers')
         .select('*')
@@ -405,8 +521,9 @@ class SubscriptionService {
         const { data: updatedSubscription } = await this.supabase
           .from('subscriptions')
           .update({
-            netopia_order_id: order.netopia_order_id,
-            netopia_token: webhookData.paymentToken,
+            payment_provider_reference: order.payment_provider_reference,
+            payment_method_token: webhookData.paymentToken,
+            ...(stripeSubscriptionId ? { stripe_subscription_id: stripeSubscriptionId } : {}),
             updated_at: new Date().toISOString()
           })
           .eq('id', existingSubscription.id)
@@ -426,8 +543,9 @@ class SubscriptionService {
             user_id: order.user_id,
             tier_id: order.metadata.tier_id,
             status: 'PENDING',
-            netopia_order_id: order.netopia_order_id,
-            netopia_token: webhookData.paymentToken,
+            payment_provider_reference: order.payment_provider_reference,
+            payment_method_token: webhookData.paymentToken,
+            ...(stripeSubscriptionId ? { stripe_subscription_id: stripeSubscriptionId } : {}),
             current_period_start: periodStart.toISOString(),
             current_period_end: periodEnd.toISOString(),
             metadata: {
@@ -450,12 +568,14 @@ class SubscriptionService {
   /**
    * Activate subscription
    * @param {string} subscriptionId - Subscription ID
-   * @param {string} netopiaOrderId - Netopia order ID
-   * @param {string} netopiaToken - Netopia token
+   * @param {string} paymentProviderReference - Gateway transaction/session reference
+   * @param {string} paymentMethodToken - Saved payment method token
+   * @param {{ stripeSubscriptionId?: string }} [stripeIds]
    * @returns {Object} Result
    */
-  async activateSubscription(subscriptionId, netopiaOrderId, netopiaToken = null) {
+  async activateSubscription(subscriptionId, paymentProviderReference, paymentMethodToken = null, stripeIds = {}) {
     try {
+      const { stripeSubscriptionId } = stripeIds;
       // Get subscription details
       const { data: subscription, error: subError } = await this.supabase
         .from('subscriptions')
@@ -475,8 +595,9 @@ class SubscriptionService {
         .from('subscriptions')
         .update({
           status: 'ACTIVE',
-          netopia_order_id: netopiaOrderId,
-          netopia_token: netopiaToken || subscription.netopia_token,
+          payment_provider_reference: paymentProviderReference,
+          payment_method_token: paymentMethodToken || subscription.payment_method_token,
+          ...(stripeSubscriptionId ? { stripe_subscription_id: stripeSubscriptionId } : {}),
           updated_at: new Date().toISOString()
         })
         .eq('id', subscriptionId);
@@ -486,10 +607,11 @@ class SubscriptionService {
       }
 
       // Update user profile subscription tier
+      const resolvedProfileTier = this._mapProfileSubscriptionTier(subscription.subscription_tiers?.name);
       const { error: profileError } = await this.supabase
         .from('profiles')
         .update({
-          subscription_tier: subscription.subscription_tiers.name.toLowerCase(),
+          subscription_tier: resolvedProfileTier,
           updated_at: new Date().toISOString()
         })
         .eq('id', subscription.user_id);
@@ -502,7 +624,7 @@ class SubscriptionService {
       await this.logPaymentEvent({
         subscriptionId: subscriptionId,
         eventType: 'SUBSCRIPTION_CREATED',
-        netopiaOrderId: netopiaOrderId,
+        paymentProviderReference,
         rawPayload: {
           subscription_id: subscriptionId,
           tier: subscription.subscription_tiers.name,
@@ -516,6 +638,18 @@ class SubscriptionService {
       console.error('SubscriptionService.activateSubscription error:', error);
       throw error;
     }
+  }
+
+  /**
+   * Mapează numele tier-ului (ex. pro-monthly, enterprise-yearly) la valorile permise în profiles.subscription_tier.
+   * @param {string} tierName
+   * @returns {string}
+   */
+  _mapProfileSubscriptionTier(tierName) {
+    const normalized = String(tierName || '').toLowerCase();
+    if (normalized.includes('enterprise')) return 'enterprise';
+    if (normalized.includes('pro')) return 'pro';
+    return 'free';
   }
 
   /**
@@ -539,6 +673,14 @@ class SubscriptionService {
 
       if (subError || !subscription) {
         throw new Error('Subscription not found');
+      }
+
+      if (subscription.stripe_subscription_id) {
+        const stripe = this._getStripePaymentService();
+        await stripe.cancelStripeSubscription({
+          stripeSubscriptionId: subscription.stripe_subscription_id,
+          immediate
+        });
       }
 
       // Update subscription
@@ -592,6 +734,54 @@ class SubscriptionService {
   }
 
   /**
+   * Creează sesiune Stripe Customer Portal pentru utilizator.
+   * @param {string} userId
+   * @param {string} [returnUrl]
+   * @returns {Promise<{ portalUrl: string }>}
+   */
+  async createStripeCustomerPortalSession(userId, returnUrl) {
+    assertPaymentsEnabled();
+
+    const { data: profile, error: profileError } = await this.supabase
+      .from('profiles')
+      .select('stripe_customer_id')
+      .eq('id', userId)
+      .single();
+
+    if (profileError) {
+      throw new Error('Profilul utilizatorului nu a fost găsit');
+    }
+
+    const stripe = this._getStripePaymentService();
+    let stripeCustomerId = profile?.stripe_customer_id || null;
+
+    if (!stripeCustomerId) {
+      const { data: userData, error: userError } = await this.supabase.auth.admin.getUserById(userId);
+      if (userError || !userData?.user?.email) {
+        throw new Error('Nu s-a putut determina email-ul utilizatorului pentru Stripe Customer Portal');
+      }
+
+      stripeCustomerId = await stripe.createOrFindCustomer({
+        email: userData.user.email,
+        userId
+      });
+
+      await this.supabase
+        .from('profiles')
+        .update({
+          stripe_customer_id: stripeCustomerId,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', userId);
+    }
+
+    return stripe.createCustomerPortalLink({
+      customerId: stripeCustomerId,
+      returnUrl
+    });
+  }
+
+  /**
    * Create refund
    * @param {string} orderId - Order ID
    * @param {number} amount - Refund amount
@@ -601,6 +791,8 @@ class SubscriptionService {
    */
   async createRefund(orderId, amount, reason, metadata = {}) {
     try {
+      assertPaymentsEnabled();
+
       // Get order details
       const { data: order, error: orderError } = await this.supabase
         .from('orders')
@@ -612,9 +804,13 @@ class SubscriptionService {
         throw new Error('Order not found');
       }
 
-      // Create refund via Netopia
-      const refundResult = await this.paymentService.createRefund({
-        orderId: order.netopia_order_id,
+      if (!order.payment_provider_reference) {
+        throw new Error('Comanda nu are referință de plată pentru refund');
+      }
+
+      const stripe = this._getStripePaymentService();
+      const refundResult = await stripe.createRefund({
+        paymentReference: order.payment_provider_reference,
         amount,
         currency: order.currency,
         reason,
@@ -626,7 +822,7 @@ class SubscriptionService {
         .from('refunds')
         .insert({
           order_id: orderId,
-          netopia_refund_id: refundResult.netopiaRefundId,
+          payment_refund_reference: refundResult.paymentRefundReference,
           amount,
           currency: order.currency,
           reason,
@@ -653,7 +849,7 @@ class SubscriptionService {
       await this.logPaymentEvent({
         orderId: orderId,
         eventType: 'REFUND_CREATED',
-        netopiaOrderId: order.netopia_order_id,
+        paymentProviderReference: order.payment_provider_reference,
         amount,
         currency: order.currency,
         rawPayload: refundResult
@@ -694,7 +890,7 @@ class SubscriptionService {
   }
 
   /**
-   * Log payment event
+   * Enhanced payment event logging with detailed tracking
    * @param {Object} eventData - Event data
    * @returns {void}
    */
@@ -704,11 +900,17 @@ class SubscriptionService {
         orderId,
         subscriptionId,
         eventType,
-        netopiaOrderId,
+        paymentProviderReference,
         amount,
         currency,
         status,
-        rawPayload
+        rawPayload,
+        ipnReceivedAt,
+        ipnStatus,
+        webhookId,
+        retryCount = 0,
+        errorMessage,
+        processingTimeMs
       } = eventData;
 
       await this.supabase
@@ -717,11 +919,17 @@ class SubscriptionService {
           order_id: orderId,
           subscription_id: subscriptionId,
           event_type: eventType,
-          netopia_order_id: netopiaOrderId,
+          payment_provider_reference: paymentProviderReference,
           amount,
           currency,
           status,
-          raw_payload: rawPayload
+          raw_payload: rawPayload,
+          ipn_received_at: ipnReceivedAt,
+          ipn_status: ipnStatus,
+          webhook_id: webhookId,
+          retry_count: retryCount,
+          error_message: errorMessage,
+          processing_time_ms: processingTimeMs
         });
 
     } catch (error) {
@@ -731,7 +939,7 @@ class SubscriptionService {
   }
 
   /**
-   * Get subscription tiers
+   * Get orphan payments (confirmed but no subscription match)
    * @returns {Array} Subscription tiers
    */
   async getSubscriptionTiers() {
@@ -760,7 +968,8 @@ class SubscriptionService {
         trialDays: tier.trial_days || 0,
         isActive: tier.is_active,
         createdAt: tier.created_at,
-        updatedAt: tier.updated_at
+        updatedAt: tier.updated_at,
+        stripePriceId: tier.stripe_price_id || null
       }));
 
     } catch (error) {
@@ -810,7 +1019,8 @@ class SubscriptionService {
           trialDays: subscription.subscription_tiers.trial_days || 0,
           isActive: subscription.subscription_tiers.is_active,
           createdAt: subscription.subscription_tiers.created_at,
-          updatedAt: subscription.subscription_tiers.updated_at
+          updatedAt: subscription.subscription_tiers.updated_at,
+          stripePriceId: subscription.subscription_tiers.stripe_price_id || null
         } : null
       };
 
@@ -821,74 +1031,7 @@ class SubscriptionService {
   }
 
   /**
-   * Validate webhook signature
-   * @param {Object} webhookData - Webhook data
-   * @returns {boolean} Is valid signature
-   */
-  validateWebhookSignature(webhookData) {
-    try {
-      return this.paymentService.validateSignature(
-        webhookData.payload,
-        webhookData.signature,
-        webhookData.timestamp
-      );
-    } catch (error) {
-      console.error('SubscriptionService.validateWebhookSignature error:', error);
-      return false;
-    }
-  }
-
-  /**
-   * Enhanced payment event logging with detailed tracking
-   * @param {Object} eventData - Event data
-   * @returns {void}
-   */
-  async logPaymentEvent(eventData) {
-    try {
-      const {
-        orderId,
-        subscriptionId,
-        eventType,
-        netopiaOrderId,
-        amount,
-        currency,
-        status,
-        rawPayload,
-        ipnReceivedAt,
-        ipnStatus,
-        webhookId,
-        retryCount = 0,
-        errorMessage,
-        processingTimeMs
-      } = eventData;
-
-      await this.supabase
-        .from('payment_logs')
-        .insert({
-          order_id: orderId,
-          subscription_id: subscriptionId,
-          event_type: eventType,
-          netopia_order_id: netopiaOrderId,
-          amount,
-          currency,
-          status,
-          raw_payload: rawPayload,
-          ipn_received_at: ipnReceivedAt,
-          ipn_status: ipnStatus,
-          webhook_id: webhookId,
-          retry_count: retryCount,
-          error_message: errorMessage,
-          processing_time_ms: processingTimeMs
-        });
-
-    } catch (error) {
-      console.error('SubscriptionService.logPaymentEvent error:', error);
-      // Don't throw error for logging failures
-    }
-  }
-
-  /**
-   * Get orphan payments (confirmed by Netopia but no subscription match)
+   * Get subscription tiers
    * @param {Object} options - Query options
    * @returns {Array} Orphan payments
    */

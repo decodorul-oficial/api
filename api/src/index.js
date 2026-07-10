@@ -110,6 +110,8 @@ import { createResolvers } from './api/resolvers.js';
 
 // Importă webhook routes
 import webhookRoutes from './routes/webhook.js';
+import paymentStripeRoutes from './routes/payment-stripe.js';
+import paymentStripeWebhookApiRoutes from './routes/payment-stripe-webhook-api.js';
 
 // Variabile globale pentru serverless
 let server = null;
@@ -166,8 +168,15 @@ async function initializeServer() {
     // Configurează CORS
     app.use(cors(securityConfig.cors));
     console.warn('✅!!!!!!! CORS configurat', securityConfig.cors.origin);
-    // Parsează JSON
-    app.use(express.json({ limit: '10mb' }));
+    // Parsează JSON, dar păstrează și rawBody pentru verificări de semnătură (ex: Stripe Webhook)
+    app.use(express.json({
+      limit: '10mb',
+      verify: (req, res, buf) => {
+        // Stripe verifică semnătura pe payload-ul brut.
+        // Nu suprascriem dacă există deja (poate veni din alt layer).
+        if (!req.rawBody) req.rawBody = buf;
+      }
+    }));
 
     // Inițializează repository-urile
     const serviceClient = supabaseClient.getServiceClient();
@@ -387,6 +396,12 @@ async function initializeServer() {
     // Webhook routes
     app.use('/webhook', webhookRoutes);
 
+    // Stripe webhook (același handler ca /webhook/stripe); body brut în req.rawBody
+    app.use('/api/payment/stripe', paymentStripeWebhookApiRoutes);
+
+    // Stripe: Checkout session + Customer Portal (JWT / auth ca pentru GraphQL)
+    app.use('/payment/stripe', authMiddleware, paymentStripeRoutes);
+
     // Endpoint pentru informații despre API
     app.get('/', (req, res) => {
       res.json({
@@ -397,9 +412,13 @@ async function initializeServer() {
         endpoints: {
           graphql: '/graphql',
           health: '/health',
-          webhook: '/webhook'
+          webhook: '/webhook',
+          stripeWebhook: '/webhook/stripe',
+          stripeWebhookApi: '/api/payment/stripe/webhook',
+          stripeCheckout: '/payment/stripe/checkout-session',
+          stripeCustomerPortal: '/payment/stripe/customer-portal'
         },
-        documentation: 'Consultați schema GraphQL pentru detalii'
+        documentation: 'Schema GraphQL; plăți Stripe: docs/STRIPE_PAYMENTS.md în repository'
       });
     });
 

@@ -367,7 +367,7 @@ export function createAdminUsersResolvers(services) {
             currency: order.currency || 'RON',
             status: mapPaymentStatus(order.status),
             method: 'CARD', // Default, ar trebui să vină din payment_methods
-            transactionId: order.netopia_order_id || order.id,
+            transactionId: order.payment_provider_reference || order.id,
             createdAt: order.created_at,
             description: `Plată subscripție`,
             statusLabel: getPaymentStatusLabel(mapPaymentStatus(order.status)),
