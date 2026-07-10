@@ -509,6 +509,7 @@ export const typeDefs = `#graphql
     isActive: Boolean!
     createdAt: String!
     updatedAt: String!
+    stripePriceId: String
   }
 
   enum SubscriptionInterval {
@@ -522,8 +523,9 @@ export const typeDefs = `#graphql
     userId: ID!
     tier: SubscriptionTier!
     status: SubscriptionStatus!
-    netopiaOrderId: String
-    netopiaToken: String
+    paymentProviderReference: String
+    paymentMethodToken: String
+    stripeSubscriptionId: String
     currentPeriodStart: String!
     currentPeriodEnd: String!
     cancelAtPeriodEnd: Boolean!
@@ -549,7 +551,7 @@ export const typeDefs = `#graphql
   type PaymentMethod {
     id: ID!
     userId: ID!
-    netopiaToken: String!
+    paymentMethodToken: String!
     last4: String!
     brand: String!
     expMonth: Int!
@@ -563,7 +565,7 @@ export const typeDefs = `#graphql
     id: ID!
     userId: ID!
     subscriptionId: ID
-    netopiaOrderId: String!
+    paymentProviderReference: String!
     amount: Float!
     currency: String!
     status: OrderStatus!
@@ -576,6 +578,7 @@ export const typeDefs = `#graphql
   }
 
   type BillingDetails {
+    type: String
     firstName: String
     lastName: String
     companyName: String
@@ -608,7 +611,7 @@ export const typeDefs = `#graphql
   type Refund {
     id: ID!
     orderId: ID!
-    netopiaRefundId: String
+    paymentRefundReference: String
     amount: Float!
     currency: String!
     reason: RefundReason!
@@ -637,7 +640,7 @@ export const typeDefs = `#graphql
     orderId: ID
     subscriptionId: ID
     eventType: PaymentEventType!
-    netopiaOrderId: String
+    paymentProviderReference: String
     amount: Float
     currency: String
     status: String
@@ -667,6 +670,11 @@ export const typeDefs = `#graphql
     expiresAt: String!
   }
 
+  # Răspuns minimal pentru Stripe Elements (doar clientSecret; fără obiect Stripe complet)
+  type CreatePaymentIntentPayload {
+    clientSecret: String!
+  }
+
   type SubscriptionUsage {
     subscriptionId: ID!
     currentPeriodStart: String!
@@ -690,9 +698,21 @@ export const typeDefs = `#graphql
     billingDetails: BillingDetailsInput
     shippingAddress: AddressInput
     metadata: JSON
+    stripePriceId: String
+    stripeProductId: String
+    stripeSuccessUrl: String
+  }
+
+  input CreateStripeCustomerPortalSessionInput {
+    returnUrl: String
+  }
+
+  type StripeCustomerPortalSession {
+    url: String!
   }
 
   input BillingDetailsInput {
+    type: String
     firstName: String
     lastName: String
     companyName: String
@@ -1379,9 +1399,11 @@ export const typeDefs = `#graphql
   # =====================================================
 
   extend type Mutation {
-    # Checkout and payment
+    # Plăți Stripe: docs/STRIPE_PAYMENTS.md (dezactivabile cu PAYMENTS_ENABLED=false)
     startCheckout(input: StartCheckoutInput!): CheckoutSession!
+    createPaymentIntent(orderId: ID!, amount: Int!): CreatePaymentIntentPayload!
     confirmPayment(orderId: ID!): Order!
+    createStripeCustomerPortalSession(input: CreateStripeCustomerPortalSessionInput!): StripeCustomerPortalSession!
     
     # Subscription management
     reactivateSubscription(input: ReactivateSubscriptionInput!): Subscription!
@@ -1401,9 +1423,6 @@ export const typeDefs = `#graphql
       olderThan: String
       status: CronJobStatusType
     ): Boolean!
-    
-    # Webhook handling (internal)
-    webhookNetopiaIPN(payload: JSON!): Boolean!
     
     # =====================================================
     # SAVED SEARCHES MUTATIONS

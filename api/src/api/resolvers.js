@@ -384,8 +384,9 @@ export function createResolvers(services) {
       userId: (parent) => parent.user_id,
       tier: (parent) => parent.subscription_tiers || parent.tier,
       status: (parent) => parent.status,
-      netopiaOrderId: (parent) => parent.netopia_order_id,
-      netopiaToken: (parent) => parent.netopia_token,
+      paymentProviderReference: (parent) => parent.payment_provider_reference,
+      paymentMethodToken: (parent) => parent.payment_method_token,
+      stripeSubscriptionId: (parent) => parent.stripe_subscription_id,
       currentPeriodStart: (parent) => parent.current_period_start,
       currentPeriodEnd: (parent) => parent.current_period_end,
       cancelAtPeriodEnd: (parent) => parent.cancel_at_period_end,
@@ -410,13 +411,14 @@ export function createResolvers(services) {
       trialDays: (parent) => parent.trialDays || parent.trial_days,
       isActive: (parent) => parent.isActive !== undefined ? parent.isActive : parent.is_active,
       createdAt: (parent) => parent.createdAt || parent.created_at,
-      updatedAt: (parent) => parent.updatedAt || parent.updated_at
+      updatedAt: (parent) => parent.updatedAt || parent.updated_at,
+      stripePriceId: (parent) => parent.stripePriceId || parent.stripe_price_id || null
     },
 
     PaymentMethod: {
       id: (parent) => parent.id,
       userId: (parent) => parent.user_id,
-      netopiaToken: (parent) => parent.netopia_token,
+      paymentMethodToken: (parent) => parent.payment_method_token,
       last4: (parent) => parent.last4,
       brand: (parent) => parent.brand,
       expMonth: (parent) => parent.exp_month,
@@ -430,7 +432,7 @@ export function createResolvers(services) {
       id: (parent) => parent.id,
       userId: (parent) => parent.user_id,
       subscriptionId: (parent) => parent.subscription_id,
-      netopiaOrderId: (parent) => parent.netopia_order_id,
+      paymentProviderReference: (parent) => parent.payment_provider_reference,
       amount: (parent) => (parent.amount !== undefined && parent.amount !== null ? Number(parent.amount) : null),
       currency: (parent) => parent.currency,
       status: (parent) => parent.status,
@@ -1344,7 +1346,7 @@ export function createResolvers(services) {
         }
       },
 
-      // Get orphan payments (confirmed by Netopia but no subscription match)
+      // Get orphan payments (confirmed by gateway but no subscription match)
       getOrphanPayments: async (parent, { limit = 50, offset = 0 }, context) => {
         try {
           if (!context.user) {
@@ -1373,7 +1375,7 @@ export function createResolvers(services) {
           const { data: webhook, error } = await supabase
             .from('webhook_processing')
             .select('*')
-            .eq('netopia_order_id', webhookId)
+            .eq('payment_provider_reference', webhookId)
             .single();
 
           if (error || !webhook) {
@@ -1381,7 +1383,7 @@ export function createResolvers(services) {
           }
 
           return {
-            webhookId: webhook.netopia_order_id,
+            webhookId: webhook.payment_provider_reference,
             status: webhook.status,
             receivedAt: webhook.created_at,
             processedAt: webhook.processed_at,
@@ -2008,7 +2010,45 @@ export function createResolvers(services) {
             expiresAt: result.expiresAt
           };
         } catch (error) {
+          const msg = error?.message || '';
+          if (error?.code === 'PAYMENTS_DISABLED') {
+            throw new GraphQLError(msg || 'Plățile sunt temporar dezactivate.', {
+              extensions: { code: 'PAYMENTS_DISABLED' }
+            });
+          }
+          if (
+            msg.includes('Lipsește URL-ul')
+            || msg.includes('Lipsesc URL-urile')
+            || msg.includes('Configurare lipsa')
+            || msg.includes('STRIPE_SUCCESS_URL')
+          ) {
+            throw new GraphQLError(msg, {
+              extensions: { code: 'PAYMENT_CONFIG_ERROR' }
+            });
+          }
           throw error;
+        }
+      },
+
+      createPaymentIntent: async (parent, { orderId, amount }, context) => {
+        if (!context.user) {
+          throw new GraphQLError('Utilizator neautentificat', {
+            extensions: { code: 'UNAUTHENTICATED' }
+          });
+        }
+        const n = Number(amount);
+        if (!Number.isInteger(n) || n < 1) {
+          throw new GraphQLError('amount trebuie să fie un întreg pozitiv (unități minore Stripe)', {
+            extensions: { code: 'BAD_USER_INPUT' }
+          });
+        }
+        try {
+          return await subscriptionService.createPaymentIntent(context.user.id, orderId, n);
+        } catch (error) {
+          const message = error?.message || 'Nu s-a putut crea PaymentIntent';
+          throw new GraphQLError(message, {
+            extensions: { code: 'PAYMENT_INTENT_CREATE_FAILED' }
+          });
         }
       },
 
@@ -2034,14 +2074,56 @@ export function createResolvers(services) {
             });
           }
 
+          // Fallback pentru Stripe Checkout: la întoarcerea din redirect putem reconcilia
+          // server-side chiar dacă webhook-ul nu a fost încă procesat.
+          if (
+            (order.status === 'PENDING' || order.status === 'PROCESSING')
+            && typeof order.payment_provider_reference === 'string'
+            && order.payment_provider_reference.startsWith('cs_')
+          ) {
+            try {
+              await subscriptionService.reconcileStripeCheckoutOrder(order);
+              const { data: refreshedOrder } = await supabase
+                .from('orders')
+                .select('*')
+                .eq('id', orderId)
+                .eq('user_id', context.user.id)
+                .single();
+              if (refreshedOrder) {
+                return refreshedOrder;
+              }
+            } catch (reconcileError) {
+              console.warn('confirmPayment reconcileStripeCheckoutOrder warning:', reconcileError?.message || reconcileError);
+            }
+          }
+
           return order;
         } catch (error) {
           throw error;
         }
       },
 
-      // Reactivate subscription
-      reactivateSubscription: async (parent, { input }, context) => {
+      createStripeCustomerPortalSession: async (parent, { input }, context) => {
+        if (!context.user) {
+          throw new GraphQLError('Utilizator neautentificat', {
+            extensions: { code: 'UNAUTHENTICATED' }
+          });
+        }
+        try {
+          const { url } = await subscriptionService.createStripeCustomerPortalSession(
+            context.user.id,
+            input?.returnUrl
+          );
+          return { url };
+        } catch (error) {
+          const msg = error?.message || 'Nu s-a putut deschide portalul Stripe';
+          if (error?.code === 'PAYMENTS_DISABLED') {
+            throw new GraphQLError(msg, { extensions: { code: 'PAYMENTS_DISABLED' } });
+          }
+          throw new GraphQLError(msg, { extensions: { code: 'STRIPE_PORTAL_FAILED' } });
+        }
+      },
+
         try {
           if (!context.user) {
             throw new GraphQLError('Utilizator neautentificat', {
@@ -2214,18 +2296,6 @@ export function createResolvers(services) {
         }
       },
 
-      // Webhook handler (internal)
-      webhookNetopiaIPN: async (parent, { payload }, context) => {
-        try {
-          // This should be called internally with proper authentication
-          const result = await subscriptionService.processWebhook(payload);
-          return result.processed;
-        } catch (error) {
-          console.error('Webhook processing error:', error);
-          return false;
-        }
-      },
-
       // Webhook-compatible: update order status
       updateOrderStatus: async (parent, args, context) => {
         const nowIso = new Date().toISOString();
@@ -2326,7 +2396,7 @@ export function createResolvers(services) {
               await supabase.from('payment_logs').insert({
                 order_id: order.id,
                 event_type: 'WEBHOOK_PROCESSED',
-                netopia_order_id: order.netopia_order_id,
+                payment_provider_reference: order.payment_provider_reference,
                 amount: amountNumber !== undefined ? amountNumber : currentAmount,
                 currency: currencyUpper || currentCurrency,
                 status: newStatus,
@@ -2412,7 +2482,7 @@ export function createResolvers(services) {
             await supabase.from('payment_logs').insert({
               order_id: updatedOrder.id,
               event_type: 'WEBHOOK_PROCESSED',
-              netopia_order_id: updatedOrder.netopia_order_id,
+              payment_provider_reference: updatedOrder.payment_provider_reference,
               amount: Number(updatedOrder.amount),
               currency: updatedOrder.currency,
               status: newStatus,

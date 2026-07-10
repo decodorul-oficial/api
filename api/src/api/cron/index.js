@@ -119,7 +119,7 @@ export async function recurringBillingHandler(req, res) {
       // Process each subscription (simplified - just log for now)
       for (const subscription of dueSubscriptions || []) {
         console.log(`Processing renewal for subscription ${subscription.id}`);
-        // TODO: Implement actual billing logic with Netopia API
+        // TODO: Implement recurring billing reconciliation via Stripe webhooks / Billing API
       }
     });
     res.status(200).json({ success: true });

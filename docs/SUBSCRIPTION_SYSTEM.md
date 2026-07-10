@@ -1,5 +1,7 @@
 # Subscription Management System
 
+> **Stripe:** consum API, webhook-uri și variabile de mediu — vezi [STRIPE_PAYMENTS.md](./STRIPE_PAYMENTS.md).
+
 ## Overview
 
 This document describes the implementation of the subscription management system for Monitorul Oficial API, integrated with Netopia payment gateway.
