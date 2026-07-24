@@ -32,8 +32,17 @@ export class LegislativeConnectionsService {
       'face referire la': 'face referire la',
       'derogă': 'derogă temporar de la',
       'suspendă': 'suspendă temporar',
-      'face referire la (extern)': 'face referire la'
+      'face referire la (extern)': 'face referire la',
+      'program_comun': 'aparține temei comune'
     };
+
+    if (link.type === 'program_comun' || targetNode.type === 'program_comun') {
+      return `Temă comună: ${targetNode.shortTitle || targetNode.title}`;
+    }
+
+    if (targetNode.type === 'external') {
+      return `Face referire la actul extern ${targetNode.shortTitle || targetNode.title}`;
+    }
 
     const verb = relationshipDescriptions[link.type] || 'face referire la';
     
@@ -112,7 +121,8 @@ export class LegislativeConnectionsService {
         'face referire la': 'Face referire la',
         'derogă': 'Derogă',
         'suspendă': 'Suspendă',
-        'face referire la (extern)': 'Face referire la (act extern)'
+        'face referire la (extern)': 'Face referire la (act extern)',
+        'program_comun': 'Program / temă comună'
       };
 
       // Transformă confidence score în indicatori vizuali
@@ -155,6 +165,29 @@ export class LegislativeConnectionsService {
 
       // Transformă nodurile cu informații îmbunătățite
       const enrichedNodes = nodes.map(node => {
+        if (node.type === 'program_comun' || node.actType === 'Hub') {
+          return {
+            id: String(node.id),
+            title: node.title,
+            shortTitle: node.shortTitle || node.title,
+            actNumber: null,
+            actType: 'Hub',
+            publicationDate: node.publicationDate || '',
+            type: 'program_comun'
+          };
+        }
+        if (node.type === 'external') {
+          const docInfo = extractDocumentInfo(node.title || '');
+          return {
+            id: String(node.id),
+            title: node.title,
+            shortTitle: node.shortTitle || docInfo.shortTitle || node.title,
+            actNumber: node.actNumber && node.actNumber !== 'N/A' ? node.actNumber : docInfo.actNumber,
+            actType: node.actType && node.actType !== 'N/A' ? node.actType : (docInfo.actType || 'Extern'),
+            publicationDate: node.publicationDate || '',
+            type: 'external'
+          };
+        }
         const docInfo = extractDocumentInfo(node.title);
         return {
           id: String(node.id),
@@ -170,7 +203,7 @@ export class LegislativeConnectionsService {
       // Transformă conexiunile cu informații îmbunătățite
       const enrichedLinks = links.map(link => {
         const confidenceInfo = getConfidenceLabel(link.confidence);
-        const relationshipLabel = relationshipLabels[link.type] || link.type;
+        const relationshipLabel = relationshipLabels[link.type] || link.typeLabel || link.type;
         
         return {
           source: String(link.source),
@@ -178,9 +211,9 @@ export class LegislativeConnectionsService {
           type: link.type,
           typeLabel: relationshipLabel,
           confidence: link.confidence,
-          confidenceLabel: confidenceInfo.label,
-          confidenceLevel: confidenceInfo.level,
-          description: this.generateConnectionDescription(link, nodes)
+          confidenceLabel: link.confidenceLabel || confidenceInfo.label,
+          confidenceLevel: (link.confidenceLevel || confidenceInfo.level || '').toString().toLowerCase(),
+          description: this.generateConnectionDescription(link, enrichedNodes) || ''
         };
       });
 

@@ -636,38 +636,6 @@ export function createResolvers(services) {
         }
       },
 
-      // Conexiuni documente pentru o știre (autentificat + abonament/trial)
-      getDocumentConnectionsByNews: async (parent, args, context) => {
-        try {
-          // Autentificare + abonament/trial obligatoriu
-          requireTrialOrSubscription(context, true);
-
-          // Validare input
-          const { newsId, relationType, limit, offset } = args;
-          const validated = validateGraphQLData({
-            newsId: String(newsId),
-            relationType: relationType || null,
-            limit: limit ?? 50,
-            offset: offset ?? 0
-          }, z.object({
-            newsId: z.string().min(1),
-            relationType: z.string().min(1).optional().nullable(),
-            limit: z.number().int().min(1).max(100).default(50),
-            offset: z.number().int().min(0).default(0)
-          }).strict());
-
-          const rows = await legislativeConnectionsService.getDocumentConnectionsByNews(validated.newsId, {
-            relationType: validated.relationType || undefined,
-            limit: validated.limit,
-            offset: validated.offset
-          });
-
-          return rows;
-        } catch (error) {
-          throw error;
-        }
-      },
-
       // Căutare în știri (fuzzy/full-text)
       searchStiri: async (parent, args, context) => {
         try {
