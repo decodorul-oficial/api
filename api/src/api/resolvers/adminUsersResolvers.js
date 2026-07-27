@@ -190,7 +190,7 @@ function getUserStatusLabel(isActive) {
  * @returns {Object} Resolver-ii GraphQL pentru admin users
  */
 export function createAdminUsersResolvers(services) {
-  const { userService, supabaseClient, newsletterRepository } = services;
+  const { userService, supabaseClient, newsletterRepository, subscriptionService } = services;
 
   return {
     // Resolver-i pentru tipuri admin
@@ -220,12 +220,20 @@ export function createAdminUsersResolvers(services) {
               subscription_tiers!inner(*)
             `)
             .eq('user_id', parent.id)
-            .eq('status', 'ACTIVE')
-            .single();
+            .in('status', ['ACTIVE', 'PAST_DUE', 'TRIALING', 'CANCELED'])
+            .order('updated_at', { ascending: false })
+            .limit(1)
+            .maybeSingle();
 
           if (error || !subscription) {
             return null;
           }
+
+          const { data: profile } = await supabaseClient
+            .from('profiles')
+            .select('stripe_customer_id')
+            .eq('id', parent.id)
+            .maybeSingle();
 
           return {
             id: subscription.id,
@@ -233,11 +241,14 @@ export function createAdminUsersResolvers(services) {
             status: mapSubscriptionStatus(subscription.status),
             startDate: subscription.current_period_start,
             endDate: subscription.current_period_end,
-            autoRenew: subscription.auto_renew || false,
+            autoRenew: !subscription.cancel_at_period_end,
             price: subscription.subscription_tiers?.price || 0,
             currency: subscription.subscription_tiers?.currency || 'RON',
             typeLabel: getSubscriptionTypeLabel(mapSubscriptionType(subscription.subscription_tiers?.name)),
-            statusLabel: getSubscriptionStatusLabel(mapSubscriptionStatus(subscription.status))
+            statusLabel: getSubscriptionStatusLabel(mapSubscriptionStatus(subscription.status)),
+            stripeSubscriptionId: subscription.stripe_subscription_id || null,
+            stripeCustomerId: profile?.stripe_customer_id || null,
+            cancelAtPeriodEnd: Boolean(subscription.cancel_at_period_end)
           };
         } catch (error) {
           console.error('Error fetching subscription:', error);
@@ -366,12 +377,17 @@ export function createAdminUsersResolvers(services) {
             amount: order.amount || 0,
             currency: order.currency || 'RON',
             status: mapPaymentStatus(order.status),
-            method: 'CARD', // Default, ar trebui să vină din payment_methods
+            method: 'CARD',
             transactionId: order.payment_provider_reference || order.id,
             createdAt: order.created_at,
-            description: `Plată subscripție`,
+            description: order.metadata?.kind === 'renewal' ? 'Reînnoire abonament' : 'Plată subscripție',
             statusLabel: getPaymentStatusLabel(mapPaymentStatus(order.status)),
-            methodLabel: getPaymentMethodLabel('CARD')
+            methodLabel: getPaymentMethodLabel('CARD'),
+            oblioSeries: order.oblio_series || null,
+            oblioNumber: order.oblio_number || null,
+            oblioLink: order.oblio_link || null,
+            oblioStatus: order.oblio_status || null,
+            stripeInvoiceId: order.stripe_invoice_id || null
           }));
         } catch (error) {
           console.error('Error fetching payment history:', error);
@@ -607,15 +623,23 @@ export function createAdminUsersResolvers(services) {
         try {
           await requireAdmin(context, userService);
 
-          // TODO: Implementează anularea subscripției
-          // Pentru moment returnează un răspuns de succes
+          if (!subscriptionService) {
+            throw new GraphQLError('SubscriptionService indisponibil', {
+              extensions: { code: 'INTERNAL_ERROR' }
+            });
+          }
+
+          await subscriptionService.cancelSubscription(subscriptionId, false, 'admin_cancel', {
+            userId
+          });
+
           return {
             success: true,
-            message: 'Subscripția a fost anulată cu succes'
+            message: 'Subscripția a fost programată pentru anulare (la finalul perioadei)'
           };
         } catch (error) {
           if (error instanceof GraphQLError) throw error;
-          throw new GraphQLError('Eroare la anularea subscripției', {
+          throw new GraphQLError(error?.message || 'Eroare la anularea subscripției', {
             extensions: { code: 'INTERNAL_ERROR' }
           });
         }
@@ -625,14 +649,21 @@ export function createAdminUsersResolvers(services) {
         try {
           await requireAdmin(context, userService);
 
-          // TODO: Implementează reactivarea subscripției
+          if (!subscriptionService) {
+            throw new GraphQLError('SubscriptionService indisponibil', {
+              extensions: { code: 'INTERNAL_ERROR' }
+            });
+          }
+
+          await subscriptionService.reactivateSubscription(subscriptionId, { userId });
+
           return {
             success: true,
             message: 'Subscripția a fost reactivată cu succes'
           };
         } catch (error) {
           if (error instanceof GraphQLError) throw error;
-          throw new GraphQLError('Eroare la reactivarea subscripției', {
+          throw new GraphQLError(error?.message || 'Eroare la reactivarea subscripției', {
             extensions: { code: 'INTERNAL_ERROR' }
           });
         }

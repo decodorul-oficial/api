@@ -4,6 +4,8 @@
  */
 
 import StripePaymentService from './StripePaymentService.js';
+import OblioInvoiceService from './OblioInvoiceService.js';
+import BillingNotificationService from './BillingNotificationService.js';
 import supabaseClient from '../../database/supabaseClient.js';
 import { orderAmountToStripeMinorUnits } from '../../utils/stripeAmount.js';
 import { assertPaymentsEnabled } from '../../utils/paymentsEnabled.js';
@@ -12,6 +14,8 @@ class SubscriptionService {
   constructor(supabaseClientParam) {
     this.supabase = supabaseClientParam || supabaseClient.getServiceClient();
     this.stripePaymentService = null;
+    this.oblioInvoiceService = null;
+    this.billingNotificationService = null;
   }
 
   _getStripePaymentService() {
@@ -19,6 +23,20 @@ class SubscriptionService {
       this.stripePaymentService = new StripePaymentService();
     }
     return this.stripePaymentService;
+  }
+
+  _getOblioInvoiceService() {
+    if (!this.oblioInvoiceService) {
+      this.oblioInvoiceService = new OblioInvoiceService(this.supabase);
+    }
+    return this.oblioInvoiceService;
+  }
+
+  _getBillingNotificationService() {
+    if (!this.billingNotificationService) {
+      this.billingNotificationService = new BillingNotificationService(this.supabase);
+    }
+    return this.billingNotificationService;
   }
 
   /**
@@ -373,12 +391,61 @@ class SubscriptionService {
       }
     }
 
+    const stripeInvoiceId =
+      (rawData?.object === 'invoice' && rawData?.id)
+      || rawData?.invoice
+      || (typeof rawData?.id === 'string' && String(rawData.id).startsWith('in_') ? rawData.id : null);
+
+    if (stripeInvoiceId) {
+      await this.supabase
+        .from('orders')
+        .update({
+          stripe_invoice_id: typeof stripeInvoiceId === 'string' ? stripeInvoiceId : stripeInvoiceId?.id || null,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', order.id);
+    }
+
+    await this.afterPaymentSuccessSideEffects(order.id, order.user_id);
+
     return {
       action: 'Stripe webhook: order + subscription + profile',
       subscriptionId: orderRow?.subscription_id || subscriptionId || null,
       orderId: order.id,
       dbResult: rpcResult
     };
+  }
+
+  /**
+   * Emit Oblio (enqueue/issue) + email după plată reușită.
+   */
+  async afterPaymentSuccessSideEffects(orderId, userId) {
+    const oblio = this._getOblioInvoiceService();
+    await oblio.enqueueInvoiceForOrder(orderId);
+
+    let oblioLink = null;
+    try {
+      const result = await oblio.issueInvoiceForOrder(orderId);
+      oblioLink = result?.link || null;
+    } catch (e) {
+      console.warn('Oblio issue deferred to queue:', e?.message || e);
+    }
+
+    const { data: order } = await this.supabase
+      .from('orders')
+      .select('*')
+      .eq('id', orderId)
+      .single();
+
+    try {
+      await this._getBillingNotificationService().notifyPaymentSuccess({
+        userId,
+        order,
+        oblioLink: oblioLink || order?.oblio_link
+      });
+    } catch (e) {
+      console.warn('Billing notify payment success:', e?.message || e);
+    }
   }
 
   /**
@@ -657,11 +724,11 @@ class SubscriptionService {
    * @param {string} subscriptionId - Subscription ID
    * @param {boolean} immediate - Cancel immediately
    * @param {string} reason - Cancellation reason
+   * @param {{ userId?: string }} [options] - If userId set, enforces ownership
    * @returns {Object} Result
    */
-  async cancelSubscription(subscriptionId, immediate = false, reason = null) {
+  async cancelSubscription(subscriptionId, immediate = false, reason = null, options = {}) {
     try {
-      // Get subscription details
       const { data: subscription, error: subError } = await this.supabase
         .from('subscriptions')
         .select(`
@@ -675,6 +742,10 @@ class SubscriptionService {
         throw new Error('Subscription not found');
       }
 
+      if (options.userId && subscription.user_id !== options.userId) {
+        throw new Error('Subscription does not belong to user');
+      }
+
       if (subscription.stripe_subscription_id) {
         const stripe = this._getStripePaymentService();
         await stripe.cancelStripeSubscription({
@@ -683,7 +754,6 @@ class SubscriptionService {
         });
       }
 
-      // Update subscription
       const { error: updateError } = await this.supabase
         .from('subscriptions')
         .update({
@@ -698,7 +768,6 @@ class SubscriptionService {
         throw new Error('Failed to update subscription');
       }
 
-      // If immediate cancellation, downgrade user profile
       if (immediate) {
         const { error: profileError } = await this.supabase
           .from('profiles')
@@ -713,7 +782,6 @@ class SubscriptionService {
         }
       }
 
-      // Log cancellation
       await this.logPaymentEvent({
         subscriptionId: subscriptionId,
         eventType: 'SUBSCRIPTION_CANCELED',
@@ -725,12 +793,510 @@ class SubscriptionService {
         }
       });
 
+      try {
+        await this._getBillingNotificationService().notifySubscriptionCanceled({
+          userId: subscription.user_id,
+          immediate,
+          periodEnd: subscription.current_period_end
+        });
+      } catch (_) {
+        /* ignore */
+      }
+
       return { success: true };
 
     } catch (error) {
       console.error('SubscriptionService.cancelSubscription error:', error);
       throw error;
     }
+  }
+
+  /**
+   * Reactivează abonamentul (Stripe cancel_at_period_end=false + DB).
+   */
+  async reactivateSubscription(subscriptionId, { userId } = {}) {
+    const { data: subscription, error } = await this.supabase
+      .from('subscriptions')
+      .select(`
+        *,
+        subscription_tiers!inner(*)
+      `)
+      .eq('id', subscriptionId)
+      .single();
+
+    if (error || !subscription) {
+      throw new Error('Subscription not found');
+    }
+
+    if (userId && subscription.user_id !== userId) {
+      throw new Error('Subscription does not belong to user');
+    }
+
+    if (subscription.stripe_subscription_id) {
+      const stripe = this._getStripePaymentService();
+      await stripe.reactivateStripeSubscription({
+        stripeSubscriptionId: subscription.stripe_subscription_id
+      });
+    }
+
+    const { data: updated, error: updateError } = await this.supabase
+      .from('subscriptions')
+      .update({
+        status: 'ACTIVE',
+        cancel_at_period_end: false,
+        canceled_at: null,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', subscriptionId)
+      .select(`
+        *,
+        subscription_tiers!inner(*)
+      `)
+      .single();
+
+    if (updateError) {
+      throw new Error('Failed to reactivate subscription');
+    }
+
+    const profileTier = this._mapProfileSubscriptionTier(subscription.subscription_tiers?.name);
+    await this.supabase
+      .from('profiles')
+      .update({
+        subscription_tier: profileTier,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', subscription.user_id);
+
+    return updated;
+  }
+
+  _mapStripeSubStatus(stripeStatus) {
+    const map = {
+      active: 'ACTIVE',
+      trialing: 'TRIALING',
+      past_due: 'PAST_DUE',
+      unpaid: 'UNPAID',
+      canceled: 'CANCELED',
+      incomplete: 'INCOMPLETE',
+      incomplete_expired: 'INCOMPLETE_EXPIRED',
+      paused: 'PAST_DUE'
+    };
+    return map[String(stripeStatus || '').toLowerCase()] || 'ACTIVE';
+  }
+
+  async _findLocalSubscriptionByStripeId(stripeSubscriptionId) {
+    if (!stripeSubscriptionId) return null;
+    const { data } = await this.supabase
+      .from('subscriptions')
+      .select(`
+        *,
+        subscription_tiers(*)
+      `)
+      .eq('stripe_subscription_id', stripeSubscriptionId)
+      .maybeSingle();
+    return data || null;
+  }
+
+  async _resolveTierIdFromStripePrice(priceId) {
+    if (!priceId) return null;
+    const { data } = await this.supabase
+      .from('subscription_tiers')
+      .select('id, name')
+      .eq('stripe_price_id', priceId)
+      .eq('is_active', true)
+      .maybeSingle();
+    if (data?.id) return data;
+
+    // lookup_key style stored in DB
+    const { data: all } = await this.supabase
+      .from('subscription_tiers')
+      .select('id, name, stripe_price_id')
+      .eq('is_active', true);
+    return (all || []).find((t) => t.stripe_price_id === priceId) || null;
+  }
+
+  /**
+   * Sync local subscription from Stripe customer.subscription.updated
+   */
+  async syncSubscriptionFromStripe(stripeSub) {
+    const stripeId = stripeSub?.id;
+    if (!stripeId) return { synced: false, reason: 'no_id' };
+
+    let local = await this._findLocalSubscriptionByStripeId(stripeId);
+    if (!local) {
+      const orderId = stripeSub.metadata?.order_id || stripeSub.metadata?.orderId;
+      if (orderId) {
+        const { data: order } = await this.supabase
+          .from('orders')
+          .select('subscription_id, user_id')
+          .eq('id', orderId)
+          .maybeSingle();
+        if (order?.subscription_id) {
+          const { data } = await this.supabase
+            .from('subscriptions')
+            .select('*, subscription_tiers(*)')
+            .eq('id', order.subscription_id)
+            .maybeSingle();
+          local = data;
+          if (local && !local.stripe_subscription_id) {
+            await this.supabase
+              .from('subscriptions')
+              .update({ stripe_subscription_id: stripeId })
+              .eq('id', local.id);
+          }
+        }
+      }
+    }
+
+    if (!local) {
+      return { synced: false, reason: 'local_subscription_not_found' };
+    }
+
+    const priceId =
+      stripeSub.items?.data?.[0]?.price?.id
+      || stripeSub.plan?.id
+      || null;
+    const tierRow = await this._resolveTierIdFromStripePrice(priceId);
+
+    const periodStart = stripeSub.current_period_start
+      ? new Date(stripeSub.current_period_start * 1000).toISOString()
+      : local.current_period_start;
+    const periodEnd = stripeSub.current_period_end
+      ? new Date(stripeSub.current_period_end * 1000).toISOString()
+      : local.current_period_end;
+
+    const status = this._mapStripeSubStatus(stripeSub.status);
+    const cancelAtPeriodEnd = Boolean(stripeSub.cancel_at_period_end);
+
+    const updatePayload = {
+      status,
+      cancel_at_period_end: cancelAtPeriodEnd,
+      current_period_start: periodStart,
+      current_period_end: periodEnd,
+      stripe_subscription_id: stripeId,
+      updated_at: new Date().toISOString()
+    };
+    if (tierRow?.id) {
+      updatePayload.tier_id = tierRow.id;
+    }
+    if (status === 'CANCELED') {
+      updatePayload.canceled_at = new Date().toISOString();
+    }
+
+    await this.supabase
+      .from('subscriptions')
+      .update(updatePayload)
+      .eq('id', local.id);
+
+    const tierName = tierRow?.name || local.subscription_tiers?.name;
+    const profileTier = status === 'CANCELED' || status === 'UNPAID' || status === 'INCOMPLETE_EXPIRED'
+      ? 'free'
+      : this._mapProfileSubscriptionTier(tierName);
+
+    if (status === 'ACTIVE' || status === 'TRIALING' || status === 'PAST_DUE' || profileTier === 'free') {
+      await this.supabase
+        .from('profiles')
+        .update({
+          subscription_tier: profileTier,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', local.user_id);
+    }
+
+    return { synced: true, subscriptionId: local.id, status };
+  }
+
+  /**
+   * customer.subscription.deleted → cancel local + free tier
+   */
+  async handleStripeSubscriptionDeleted(stripeSub) {
+    const result = await this.syncSubscriptionFromStripe({
+      ...stripeSub,
+      status: 'canceled',
+      cancel_at_period_end: false
+    });
+
+    const local = await this._findLocalSubscriptionByStripeId(stripeSub?.id);
+    if (local) {
+      await this.supabase
+        .from('subscriptions')
+        .update({
+          status: 'CANCELED',
+          canceled_at: new Date().toISOString(),
+          cancel_at_period_end: false,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', local.id);
+
+      await this.supabase
+        .from('profiles')
+        .update({
+          subscription_tier: 'free',
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', local.user_id);
+
+      try {
+        await this._getBillingNotificationService().notifySubscriptionCanceled({
+          userId: local.user_id,
+          immediate: true,
+          periodEnd: local.current_period_end
+        });
+      } catch (_) {
+        /* ignore */
+      }
+    }
+
+    return result;
+  }
+
+  /**
+   * invoice.payment_failed → PAST_DUE + email
+   */
+  async handleStripeInvoicePaymentFailed(invoice) {
+    const stripeSubId =
+      typeof invoice?.subscription === 'string'
+        ? invoice.subscription
+        : invoice?.subscription?.id;
+
+    const local = await this._findLocalSubscriptionByStripeId(stripeSubId);
+    if (!local) {
+      return { handled: false, reason: 'subscription_not_found' };
+    }
+
+    await this.supabase
+      .from('subscriptions')
+      .update({
+        status: 'PAST_DUE',
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', local.id);
+
+    await this.logPaymentEvent({
+      subscriptionId: local.id,
+      eventType: 'PAYMENT_FAILED',
+      paymentProviderReference: invoice?.id,
+      amount: invoice?.amount_due != null ? invoice.amount_due / 100 : undefined,
+      currency: invoice?.currency,
+      status: 'FAILED',
+      rawPayload: invoice
+    });
+
+    try {
+      await this._getBillingNotificationService().notifyPaymentFailed({
+        userId: local.user_id,
+        reason: invoice?.last_finalization_error?.message || invoice?.billing_reason
+      });
+    } catch (_) {
+      /* ignore */
+    }
+
+    return { handled: true, subscriptionId: local.id };
+  }
+
+  /**
+   * invoice.paid — first payment vs renewal
+   */
+  async handleStripeInvoicePaid(invoice, { eventId } = {}) {
+    const billingReason = invoice?.billing_reason || '';
+    const stripeSubId =
+      typeof invoice?.subscription === 'string'
+        ? invoice.subscription
+        : invoice?.subscription?.id;
+
+    const isRenewal =
+      billingReason === 'subscription_cycle'
+      || billingReason === 'subscription_update'
+      || billingReason === 'subscription';
+
+    // Prefer metadata order for initial checkout invoices
+    const orderIdFromMeta = invoice?.metadata?.order_id || invoice?.metadata?.orderId;
+    let orderId = orderIdFromMeta;
+
+    if (!orderId && stripeSubId) {
+      try {
+        const stripe = this._getStripePaymentService();
+        const sub = await stripe.retrieveSubscription(stripeSubId);
+        orderId = sub?.metadata?.order_id || sub?.metadata?.orderId || null;
+      } catch (_) {
+        /* ignore */
+      }
+    }
+
+    // Renewal: create a new SUCCEEDED order + extend period (never reuse Already paid path)
+    if (isRenewal || (orderId && billingReason === 'subscription_cycle')) {
+      return this._handleRenewalInvoice(invoice, { stripeSubId, eventId });
+    }
+
+    if (orderId) {
+      const { data: order } = await this.supabase
+        .from('orders')
+        .select('*')
+        .eq('id', orderId)
+        .maybeSingle();
+
+      if (order?.status === 'SUCCEEDED') {
+        // Ensure Oblio for first payment if invoice.paid arrives after checkout.session.completed
+        if (!order.oblio_status || order.oblio_status === 'pending' || order.oblio_status === 'failed') {
+          if (invoice?.id) {
+            await this.supabase
+              .from('orders')
+              .update({ stripe_invoice_id: invoice.id, updated_at: new Date().toISOString() })
+              .eq('id', order.id);
+          }
+          await this.afterPaymentSuccessSideEffects(order.id, order.user_id);
+        }
+        if (stripeSubId) {
+          await this.syncSubscriptionFromStripe(
+            await this._safeRetrieveSub(stripeSubId)
+          );
+        }
+        return { processed: false, reason: 'Already paid', orderId: order.id, oblioEnsured: true };
+      }
+
+      if (order) {
+        await this.handleStripePaymentSuccess(order, {
+          transactionId: invoice.payment_intent || invoice.id,
+          rawData: invoice
+        });
+        return { processed: true, orderId: order.id, kind: 'initial' };
+      }
+    }
+
+    // Fallback: treat as renewal if we have a local subscription
+    if (stripeSubId) {
+      return this._handleRenewalInvoice(invoice, { stripeSubId, eventId });
+    }
+
+    return { processed: false, reason: 'unmapped_invoice' };
+  }
+
+  async _safeRetrieveSub(stripeSubId) {
+    try {
+      return await this._getStripePaymentService().retrieveSubscription(stripeSubId);
+    } catch (_) {
+      return { id: stripeSubId };
+    }
+  }
+
+  async _handleRenewalInvoice(invoice, { stripeSubId, eventId }) {
+    const local = await this._findLocalSubscriptionByStripeId(stripeSubId);
+    if (!local) {
+      return { processed: false, reason: 'subscription_not_found_for_renewal' };
+    }
+
+    // Idempotency: same stripe invoice already stored
+    if (invoice?.id) {
+      const { data: existing } = await this.supabase
+        .from('orders')
+        .select('id')
+        .eq('stripe_invoice_id', invoice.id)
+        .maybeSingle();
+      if (existing?.id) {
+        return { processed: false, reason: 'invoice_already_recorded', orderId: existing.id };
+      }
+    }
+
+    const amountMajor =
+      typeof invoice.amount_paid === 'number'
+        ? invoice.amount_paid / 100
+        : Number(local.subscription_tiers?.price) || 0;
+
+    const periodStart = invoice.lines?.data?.[0]?.period?.start
+      ? new Date(invoice.lines.data[0].period.start * 1000).toISOString()
+      : new Date().toISOString();
+    const periodEnd = invoice.lines?.data?.[0]?.period?.end
+      ? new Date(invoice.lines.data[0].period.end * 1000).toISOString()
+      : this.calculatePeriodEnd(new Date(), local.subscription_tiers?.interval || 'MONTHLY').toISOString();
+
+    const { data: renewalOrder, error: orderErr } = await this.supabase
+      .from('orders')
+      .insert({
+        user_id: local.user_id,
+        subscription_id: local.id,
+        amount: amountMajor,
+        currency: String(invoice.currency || 'ron').toUpperCase(),
+        status: 'SUCCEEDED',
+        payment_provider_reference: invoice.payment_intent || invoice.id,
+        stripe_invoice_id: invoice.id || null,
+        billing_details: {},
+        metadata: {
+          tier_id: local.tier_id,
+          tier_name: local.subscription_tiers?.name,
+          kind: 'renewal',
+          stripe_event_id: eventId || null,
+          billing_reason: invoice.billing_reason
+        }
+      })
+      .select()
+      .single();
+
+    if (orderErr) {
+      throw new Error(`Failed to create renewal order: ${orderErr.message}`);
+    }
+
+    await this.supabase
+      .from('subscriptions')
+      .update({
+        status: 'ACTIVE',
+        current_period_start: periodStart,
+        current_period_end: periodEnd,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', local.id);
+
+    const profileTier = this._mapProfileSubscriptionTier(local.subscription_tiers?.name);
+    await this.supabase
+      .from('profiles')
+      .update({
+        subscription_tier: profileTier,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', local.user_id);
+
+    await this.logPaymentEvent({
+      orderId: renewalOrder.id,
+      subscriptionId: local.id,
+      eventType: 'PAYMENT_SUCCEEDED',
+      paymentProviderReference: invoice.id,
+      amount: amountMajor,
+      currency: renewalOrder.currency,
+      status: 'SUCCEEDED',
+      rawPayload: invoice
+    });
+
+    await this.afterPaymentSuccessSideEffects(renewalOrder.id, local.user_id);
+
+    return { processed: true, kind: 'renewal', orderId: renewalOrder.id };
+  }
+
+  /**
+   * Free-tier maintenance: Oblio queue + light Stripe drift sync (batch capped).
+   */
+  async runPaymentsMaintenanceSweeper({ oblioLimit = 20, driftLimit = 10 } = {}) {
+    const oblioResult = await this._getOblioInvoiceService().processQueue({ limit: oblioLimit });
+
+    const { data: due } = await this.supabase
+      .from('subscriptions')
+      .select('id, stripe_subscription_id, status, cancel_at_period_end, current_period_end')
+      .not('stripe_subscription_id', 'is', null)
+      .in('status', ['ACTIVE', 'PAST_DUE', 'TRIALING'])
+      .lte('current_period_end', new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString())
+      .limit(driftLimit);
+
+    let synced = 0;
+    const stripe = this._getStripePaymentService();
+    for (const row of due || []) {
+      try {
+        const remote = await stripe.retrieveSubscription(row.stripe_subscription_id);
+        await this.syncSubscriptionFromStripe(remote);
+        synced += 1;
+      } catch (e) {
+        console.warn('Drift sync failed for', row.id, e?.message || e);
+      }
+    }
+
+    return { oblio: oblioResult, driftSynced: synced };
   }
 
   /**

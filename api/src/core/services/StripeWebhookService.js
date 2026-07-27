@@ -1,5 +1,5 @@
 /**
- * Webhook HTTP Stripe: semnătură obligatorie, idempotență, la succes → RPC + profil.
+ * Webhook HTTP Stripe: semnătură obligatorie, lifecycle abonament, renewals, Oblio.
  * @see docs/STRIPE_PAYMENTS.md
  */
 
@@ -29,40 +29,43 @@ class StripeWebhookService {
     }
   }
 
-  /**
-   * Update status comandă: la SUCCEEDED folosește SubscriptionService + RPC payments.
-   */
-  async updateOrderStatusFromStripe({ orderId, newStatus, transactionId, rawData, eventId }) {
-    const nowIso = new Date().toISOString();
-
-    // 1) Idempotency (best-effort, in functie de existenta coloanelor/table-ului)
+  async _beginIdempotency(eventId, refKey) {
     const signatureHash = this.stripePaymentService.sha256Hex(eventId);
-
     try {
       const { data: existing } = await this.supabase
         .from('webhook_processing')
         .select('id')
-        .eq('payment_provider_reference', orderId)
+        .eq('payment_provider_reference', refKey)
         .eq('event_type', this.webhookEventTypeRecord)
         .eq('signature_hash', signatureHash)
         .limit(1);
 
       if (Array.isArray(existing) && existing.length > 0 && existing[0]?.id) {
-        return { processed: false, reason: 'Duplicate event' };
+        return { duplicate: true, signatureHash };
       }
 
       await this.supabase.from('webhook_processing').insert({
-        payment_provider_reference: orderId,
+        payment_provider_reference: refKey,
         event_type: this.webhookEventTypeRecord,
         signature_hash: signatureHash,
         status: 'PROCESSING'
       });
-    } catch (e) {
-      // Daca webhook_processing nu exista sau are alt schema, continuam (dar cu risc de dubluri).
-      // Cerinta principala este verificarea semnaturii.
+    } catch (_) {
+      /* table may be missing — continue */
+    }
+    return { duplicate: false, signatureHash };
+  }
+
+  /**
+   * Update status comandă: la SUCCEEDED folosește SubscriptionService + RPC payments.
+   */
+  async updateOrderStatusFromStripe({ orderId, newStatus, transactionId, rawData, eventId }) {
+    const nowIso = new Date().toISOString();
+    const { duplicate, signatureHash } = await this._beginIdempotency(eventId, orderId);
+    if (duplicate) {
+      return { processed: false, reason: 'Duplicate event' };
     }
 
-    // 2) Load order
     const { data: order, error: orderErr } = await this.supabase
       .from('orders')
       .select('*')
@@ -73,8 +76,15 @@ class StripeWebhookService {
       return { processed: false, reason: 'Order not found' };
     }
 
-    // Idempotent: nu reprocessăm plata reușită / eșuată deja înregistrată
     if (newStatus === 'SUCCEEDED' && order.status === 'SUCCEEDED') {
+      // Still try Oblio if missing (invoice.paid / late webhook)
+      if (!order.oblio_status || ['pending', 'failed'].includes(order.oblio_status)) {
+        try {
+          await this.subscriptionService.afterPaymentSuccessSideEffects(order.id, order.user_id);
+        } catch (_) {
+          /* ignore */
+        }
+      }
       await this._markWebhookProcessingDone(signatureHash, orderId);
       return { processed: false, reason: 'Already paid' };
     }
@@ -97,14 +107,12 @@ class StripeWebhookService {
       }
     }
 
-    // 3) Prepare updated metadata
     const currentMetadata = order.metadata || {};
     const updatedMetadata = {
       ...currentMetadata,
-      ...(transactionId ? { last_transaction_id: transactionId } : {}),
+      ...(transactionId ? { last_transaction_id: transactionId } : {})
     };
 
-    // status timestamps in metadata (compatibil cu resolver-ul updateOrderStatus)
     const statusTsKey = {
       SUCCEEDED: 'succeeded_at',
       FAILED: 'failed_at',
@@ -115,16 +123,20 @@ class StripeWebhookService {
       updatedMetadata[statusTsKey] = nowIso;
     }
 
-    // 4) Update order
-    const updatePayload = {
+    await this.supabase.from('orders').update({
       status: newStatus,
       metadata: updatedMetadata,
       updated_at: nowIso
-    };
+    }).eq('id', orderId);
 
-    await this.supabase.from('orders').update(updatePayload).eq('id', orderId);
+    if (newStatus === 'FAILED') {
+      try {
+        await this.subscriptionService.handlePaymentFailure(order, rawData || {});
+      } catch (_) {
+        /* already updated status */
+      }
+    }
 
-    // 5) Payment log
     try {
       await this.supabase.from('payment_logs').insert({
         order_id: orderId,
@@ -137,11 +149,10 @@ class StripeWebhookService {
         created_at: nowIso
       });
     } catch (_) {
-      /* ignore logging errors */
+      /* ignore */
     }
 
     await this._markWebhookProcessingDone(signatureHash, orderId);
-
     return { processed: true };
   }
 
@@ -156,10 +167,57 @@ class StripeWebhookService {
       });
 
       const eventId = event.id;
+      const obj = event.data?.object || {};
 
+      // --- Subscription lifecycle (no order required) ---
+      if (event.type === 'customer.subscription.updated') {
+        const ref = obj.id || eventId;
+        const { duplicate } = await this._beginIdempotency(eventId, `sub:${ref}`);
+        if (duplicate) {
+          return res.status(200).json({ received: true, reason: 'Duplicate event' });
+        }
+        const result = await this.subscriptionService.syncSubscriptionFromStripe(obj);
+        return res.status(200).json({ received: true, ...result });
+      }
+
+      if (event.type === 'customer.subscription.deleted') {
+        const ref = obj.id || eventId;
+        const { duplicate } = await this._beginIdempotency(eventId, `subdel:${ref}`);
+        if (duplicate) {
+          return res.status(200).json({ received: true, reason: 'Duplicate event' });
+        }
+        const result = await this.subscriptionService.handleStripeSubscriptionDeleted(obj);
+        return res.status(200).json({ received: true, ...result });
+      }
+
+      if (event.type === 'invoice.payment_failed') {
+        const ref = obj.id || eventId;
+        const { duplicate } = await this._beginIdempotency(eventId, `invfail:${ref}`);
+        if (duplicate) {
+          return res.status(200).json({ received: true, reason: 'Duplicate event' });
+        }
+        const result = await this.subscriptionService.handleStripeInvoicePaymentFailed(obj);
+        return res.status(200).json({ received: true, ...result });
+      }
+
+      if (event.type === 'invoice.paid' || event.type === 'invoice_payment.paid') {
+        const invoice =
+          event.type === 'invoice_payment.paid' && obj.invoice
+            ? (typeof obj.invoice === 'object' ? obj.invoice : obj)
+            : obj;
+        const ref = invoice.id || eventId;
+        const { duplicate } = await this._beginIdempotency(eventId, `invpaid:${ref}`);
+        if (duplicate) {
+          return res.status(200).json({ received: true, reason: 'Duplicate event' });
+        }
+        const result = await this.subscriptionService.handleStripeInvoicePaid(invoice, { eventId });
+        return res.status(200).json({ received: true, ...result });
+      }
+
+      // --- Order-mapped events (checkout / payment_intent) ---
       const orderUpdate = await this.stripePaymentService.getOrderUpdateFromStripeEvent(event);
       if (!orderUpdate?.orderId || !orderUpdate?.newStatus) {
-        return res.status(200).json({ received: true, ignored: true });
+        return res.status(200).json({ received: true, ignored: true, type: event.type });
       }
 
       const result = await this.updateOrderStatusFromStripe({
@@ -187,4 +245,3 @@ class StripeWebhookService {
 }
 
 export default StripeWebhookService;
-

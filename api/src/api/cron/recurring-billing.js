@@ -6,27 +6,36 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY
 );
 
-// Calculate next run time for recurring_billing (every 6 hours)
 function calculateNextRun() {
   const now = new Date();
-  const next6Hour = new Date(now);
-  next6Hour.setHours(Math.ceil(now.getHours() / 6) * 6, 0, 0, 0);
-  return next6Hour.toISOString();
+  const next = new Date(now);
+  next.setUTCDate(next.getUTCDate() + 1);
+  next.setUTCHours(3, 0, 0, 0);
+  return next.toISOString();
+}
+
+function verifyCronAuth(req) {
+  const cronKey =
+    req.headers['x-vercel-cron']
+    || req.headers['authorization']?.replace(/^Bearer\s+/i, '');
+
+  const expected = process.env.ALERTS_CRON_SECRET || process.env.VERCEL_CRON_KEY;
+  // If no secret configured, allow (local).
+  // Vercel Cron sets x-vercel-cron; pg_net sends Bearer ALERTS_CRON_SECRET.
+  if (!expected) return true;
+  if (req.headers['x-vercel-cron']) return true;
+  return Boolean(cronKey && cronKey === expected);
 }
 
 export default async function handler(req, res) {
-  // Allow both GET (Vercel Cron) and POST requests
   if (req.method !== 'GET' && req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  // Verify request is from Vercel Cron
-  const cronKey = req.headers['x-vercel-cron'] || req.headers['authorization']?.replace('Bearer ', '');
-  if (process.env.VERCEL_CRON_KEY && cronKey !== process.env.VERCEL_CRON_KEY) {
+  if (!verifyCronAuth(req)) {
     return res.status(401).json({ error: 'Unauthorized' });
   }
 
-  // Sync job status with database
   try {
     const nextRun = calculateNextRun();
     await supabase.rpc('sync_cron_job_status', {

@@ -121,6 +121,19 @@ function extractCaptchaToken(req) {
  * @returns {Promise<Object>} Rezultatul validării
  */
 async function verifyCaptchaToken(token, ip) {
+  // Local E2E bypass — never enable in production
+  if (process.env.NODE_ENV !== 'production' && process.env.RECAPTCHA_E2E_BYPASS === 'true' && token) {
+    return {
+      success: true,
+      score: 1,
+      action: 'e2e',
+      challengeTs: new Date().toISOString(),
+      hostname: 'localhost',
+      errorCodes: [],
+      isValid: true
+    };
+  }
+
   try {
     const response = await axios.post(RECAPTCHA_CONFIG.verifyUrl, {
       secret: RECAPTCHA_CONFIG.secretKey,

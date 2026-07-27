@@ -293,6 +293,26 @@ class StripePaymentService {
   }
 
   /**
+   * Reactivează un abonament marcat cancel_at_period_end pe Stripe.
+   */
+  async reactivateStripeSubscription({ stripeSubscriptionId }) {
+    if (!stripeSubscriptionId) {
+      throw new Error('stripeSubscriptionId este obligatoriu');
+    }
+    return this.stripe.subscriptions.update(String(stripeSubscriptionId), {
+      cancel_at_period_end: false
+    });
+  }
+
+  /**
+   * Retrieve Stripe subscription by id.
+   */
+  async retrieveSubscription(stripeSubscriptionId) {
+    if (!stripeSubscriptionId) return null;
+    return this.stripe.subscriptions.retrieve(String(stripeSubscriptionId));
+  }
+
+  /**
    * Refund Stripe pentru o comandă plătită (PaymentIntent / Checkout Session).
    * @param {{ paymentReference: string, amount: number, currency: string, reason?: string, description?: string }} params
    */
@@ -453,67 +473,7 @@ class StripePaymentService {
       };
     }
 
-    if (event.type === 'invoice.paid' || event.type === 'invoice_payment.paid') {
-      const obj = event.data?.object || {};
-
-      const orderIdFromInvoice = obj.metadata?.order_id || obj.metadata?.orderId;
-      if (orderIdFromInvoice) {
-        return {
-          orderId: String(orderIdFromInvoice),
-          newStatus: 'SUCCEEDED',
-          transactionId: obj.payment_intent || obj.id,
-          amount: typeof obj.amount_paid === 'number' ? obj.amount_paid : undefined,
-          currency: obj.currency || undefined,
-          rawData: obj
-        };
-      }
-
-      // Fallback: încearcă din subscription (daca subscription e obiect, sau retrieve)
-      const subscription = obj.subscription;
-      if (typeof subscription === 'object' && subscription?.metadata) {
-        const orderIdFromSubscription = subscription.metadata.order_id || subscription.metadata.orderId;
-        if (orderIdFromSubscription) {
-          return {
-            orderId: String(orderIdFromSubscription),
-            newStatus: 'SUCCEEDED',
-            transactionId: obj.payment_intent || obj.id,
-            amount: typeof obj.amount_paid === 'number' ? obj.amount_paid : undefined,
-            currency: obj.currency || undefined,
-            rawData: obj
-          };
-        }
-      }
-
-      if (typeof subscription === 'string' && subscription) {
-        const sub = await this.stripe.subscriptions.retrieve(subscription);
-        const orderIdFromSubscription = sub?.metadata?.order_id || sub?.metadata?.orderId;
-        if (orderIdFromSubscription) {
-          return {
-            orderId: String(orderIdFromSubscription),
-            newStatus: 'SUCCEEDED',
-            transactionId: obj.payment_intent || obj.id,
-            amount: typeof obj.amount_paid === 'number' ? obj.amount_paid : undefined,
-            currency: obj.currency || undefined,
-            rawData: obj
-          };
-        }
-      }
-
-      return null;
-    }
-
-    if (event.type === 'customer.subscription.deleted') {
-      const obj = event.data?.object || {};
-      const orderId = obj.metadata?.order_id || obj.metadata?.orderId;
-      if (!orderId) return null;
-
-      return {
-        orderId: String(orderId),
-        newStatus: 'CANCELED',
-        transactionId: obj.id,
-        rawData: obj
-      };
-    }
+    // invoice.* and customer.subscription.* handled in StripeWebhookService router
 
     return null;
   }

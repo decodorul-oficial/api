@@ -92,35 +92,15 @@ const runJob = async (jobName, jobFunction) => {
   }
 };
 
-// Cron job handler for recurring billing
+// Cron job handler for recurring billing — payments maintenance sweeper (Oblio retry + light Stripe drift)
 export async function recurringBillingHandler(req, res) {
   try {
     await runJob('recurring_billing', async () => {
-      console.log('🔄 Processing recurring billing...');
-      
-      // Get subscriptions due for renewal from payments schema
-      const { data: dueSubscriptions, error } = await supabase
-        .from('payments.subscriptions')
-        .select(`
-          *,
-          subscription_tiers:payments.subscription_tiers!inner(*)
-        `)
-        .eq('status', 'ACTIVE')
-        .lte('current_period_end', new Date().toISOString())
-        .is('cancel_at_period_end', false);
-
-      if (error) {
-        console.error('Error fetching due subscriptions:', error);
-        return;
-      }
-
-      console.log(`Found ${dueSubscriptions?.length || 0} subscriptions due for renewal`);
-
-      // Process each subscription (simplified - just log for now)
-      for (const subscription of dueSubscriptions || []) {
-        console.log(`Processing renewal for subscription ${subscription.id}`);
-        // TODO: Implement recurring billing reconciliation via Stripe webhooks / Billing API
-      }
+      console.log('🔄 Payments maintenance sweeper (Oblio queue + Stripe drift)...');
+      const { default: SubscriptionService } = await import('../../core/services/SubscriptionService.js');
+      const service = new SubscriptionService(supabase);
+      const result = await service.runPaymentsMaintenanceSweeper({ oblioLimit: 20, driftLimit: 10 });
+      console.log('✅ Payments maintenance done:', JSON.stringify(result));
     });
     res.status(200).json({ success: true });
   } catch (error) {

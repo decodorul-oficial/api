@@ -179,7 +179,8 @@ export function createResolvers(services) {
   const adminUsersResolvers = createAdminUsersResolvers({ 
     userService, 
     supabaseClient, 
-    newsletterRepository: newsletterService.newsletterRepository 
+    newsletterRepository: newsletterService.newsletterRepository,
+    subscriptionService
   });
 
   const legislationWatchResolvers = createLegislationWatchResolvers({
@@ -471,8 +472,27 @@ export function createResolvers(services) {
       paymentMethodId: (parent) => parent.payment_method_id,
       billingDetails: (parent) => parent.billing_details,
       metadata: (parent) => parent.metadata,
+      stripeInvoiceId: (parent) => parent.stripe_invoice_id,
+      oblioSeries: (parent) => parent.oblio_series,
+      oblioNumber: (parent) => parent.oblio_number,
+      oblioLink: (parent) => parent.oblio_link,
+      oblioStatus: (parent) => parent.oblio_status,
       createdAt: (parent) => parent.created_at,
       updatedAt: (parent) => parent.updated_at
+    },
+
+    PaymentLog: {
+      id: (parent) => parent.id,
+      orderId: (parent) => parent.order_id,
+      subscriptionId: (parent) => parent.subscription_id,
+      eventType: (parent) => parent.event_type,
+      paymentProviderReference: (parent) => parent.payment_provider_reference,
+      amount: (parent) => (parent.amount != null ? Number(parent.amount) : null),
+      currency: (parent) => parent.currency,
+      status: (parent) => parent.status,
+      rawPayload: (parent) => parent.raw_payload || {},
+      processedAt: (parent) => parent.processed_at || parent.created_at,
+      createdAt: (parent) => parent.created_at
     },
 
     SubscriptionUsage: {
@@ -1342,7 +1362,12 @@ export function createResolvers(services) {
             });
           }
 
-          // TODO: Add admin role check
+          const isAdmin = await userService.isAdmin(context.user.id);
+          if (!isAdmin) {
+            throw new GraphQLError('Acces interzis: necesită rol admin', {
+              extensions: { code: 'FORBIDDEN' }
+            });
+          }
           return await subscriptionService.getPaymentMetrics({ startDate, endDate });
         } catch (error) {
           throw error;
@@ -1358,8 +1383,103 @@ export function createResolvers(services) {
             });
           }
 
-          // TODO: Add admin role check
+          const isAdmin = await userService.isAdmin(context.user.id);
+          if (!isAdmin) {
+            throw new GraphQLError('Acces interzis: necesită rol admin', {
+              extensions: { code: 'FORBIDDEN' }
+            });
+          }
           return await subscriptionService.getOrphanPayments({ limit, offset });
+        } catch (error) {
+          throw error;
+        }
+      },
+
+      getPaymentLogs: async (parent, { orderId, subscriptionId, limit = 50, offset = 0 }, context) => {
+        try {
+          if (!context.user) {
+            throw new GraphQLError('Utilizator neautentificat', {
+              extensions: { code: 'UNAUTHENTICATED' }
+            });
+          }
+          const isAdmin = await userService.isAdmin(context.user.id);
+          if (!isAdmin) {
+            throw new GraphQLError('Acces interzis: necesită rol admin', {
+              extensions: { code: 'FORBIDDEN' }
+            });
+          }
+
+          let query = supabase
+            .from('payment_logs')
+            .select('*')
+            .order('created_at', { ascending: false })
+            .range(offset, offset + limit - 1);
+
+          if (orderId) query = query.eq('order_id', orderId);
+          if (subscriptionId) query = query.eq('subscription_id', subscriptionId);
+
+          const { data, error } = await query;
+          if (error) throw new Error(error.message);
+          return data || [];
+        } catch (error) {
+          throw error;
+        }
+      },
+
+      getPaymentsOpsHealth: async (parent, args, context) => {
+        try {
+          if (!context.user) {
+            throw new GraphQLError('Utilizator neautentificat', {
+              extensions: { code: 'UNAUTHENTICATED' }
+            });
+          }
+          const isAdmin = await userService.isAdmin(context.user.id);
+          if (!isAdmin) {
+            throw new GraphQLError('Acces interzis: necesită rol admin', {
+              extensions: { code: 'FORBIDDEN' }
+            });
+          }
+
+          const paymentsEnabled = String(process.env.PAYMENTS_ENABLED || '').toLowerCase() === 'true'
+            || (process.env.NODE_ENV !== 'production' && process.env.PAYMENTS_ENABLED !== 'false');
+
+          const { count: failedOblio } = await supabase
+            .from('oblio_invoice_queue')
+            .select('id', { count: 'exact', head: true })
+            .eq('status', 'failed');
+
+          const { count: pendingOblio } = await supabase
+            .from('oblio_invoice_queue')
+            .select('id', { count: 'exact', head: true })
+            .eq('status', 'pending');
+
+          const { count: failedOrders } = await supabase
+            .from('orders')
+            .select('id', { count: 'exact', head: true })
+            .eq('status', 'FAILED');
+
+          const { count: pastDue } = await supabase
+            .from('subscriptions')
+            .select('id', { count: 'exact', head: true })
+            .eq('status', 'PAST_DUE');
+
+          const { data: recentLogs } = await supabase
+            .from('payment_logs')
+            .select('*')
+            .order('created_at', { ascending: false })
+            .limit(20);
+
+          return {
+            paymentsEnabled,
+            oblioEnabled: String(process.env.OBLIO_ENABLED || '').toLowerCase() === 'true'
+              || Boolean(process.env.OBLIO_EMAIL && process.env.OBLIO_SECRET && process.env.OBLIO_CIF
+                && String(process.env.OBLIO_ENABLED || '').toLowerCase() !== 'false'),
+            failedOblioCount: failedOblio || 0,
+            pendingOblioCount: pendingOblio || 0,
+            failedOrdersCount: failedOrders || 0,
+            pastDueSubscriptionsCount: pastDue || 0,
+            recentPaymentLogs: recentLogs || []
+          };
         } catch (error) {
           throw error;
         }
@@ -1374,7 +1494,13 @@ export function createResolvers(services) {
             });
           }
 
-          // TODO: Add admin role check
+          const isAdmin = await userService.isAdmin(context.user.id);
+          if (!isAdmin) {
+            throw new GraphQLError('Acces interzis: necesită rol admin', {
+              extensions: { code: 'FORBIDDEN' }
+            });
+          }
+
           const { data: webhook, error } = await supabase
             .from('webhook_processing')
             .select('*')
@@ -2116,11 +2242,11 @@ export function createResolvers(services) {
           });
         }
         try {
-          const { url } = await subscriptionService.createStripeCustomerPortalSession(
+          const { portalUrl } = await subscriptionService.createStripeCustomerPortalSession(
             context.user.id,
             input?.returnUrl
           );
-          return { url };
+          return { url: portalUrl };
         } catch (error) {
           const msg = error?.message || 'Nu s-a putut deschide portalul Stripe';
           if (error?.code === 'PAYMENTS_DISABLED') {
@@ -2138,42 +2264,10 @@ export function createResolvers(services) {
             });
           }
 
-          const { subscriptionId, paymentMethodId } = input;
-          
-          // Get subscription details
-          const { data: subscription, error } = await supabase
-            .from('subscriptions')
-            .select('*')
-            .eq('id', subscriptionId)
-            .eq('user_id', context.user.id)
-            .single();
-
-          if (error || !subscription) {
-            throw new GraphQLError('Subscription not found', {
-              extensions: { code: 'SUBSCRIPTION_NOT_FOUND' }
-            });
-          }
-
-          // Update subscription status
-          const { data: updatedSubscription, error: updateError } = await supabase
-            .from('subscriptions')
-            .update({
-              status: 'ACTIVE',
-              cancel_at_period_end: false,
-              updated_at: new Date().toISOString()
-            })
-            .eq('id', subscriptionId)
-            .select(`
-              *,
-              subscription_tiers!inner(*)
-            `)
-            .single();
-
-          if (updateError) {
-            throw new Error('Failed to reactivate subscription');
-          }
-
-          return updatedSubscription;
+          const { subscriptionId } = input;
+          return await subscriptionService.reactivateSubscription(subscriptionId, {
+            userId: context.user.id
+          });
         } catch (error) {
           throw error;
         }
@@ -2188,12 +2282,15 @@ export function createResolvers(services) {
             });
           }
 
-          const { subscriptionId, immediate, refund, reason } = input;
-          
-          // Cancel subscription
-          await subscriptionService.cancelSubscription(subscriptionId, immediate, reason);
+          const { subscriptionId, immediate, reason } = input;
 
-          // Get updated subscription
+          await subscriptionService.cancelSubscription(
+            subscriptionId,
+            immediate,
+            reason,
+            { userId: context.user.id }
+          );
+
           const { data: subscription, error } = await supabase
             .from('subscriptions')
             .select(`
@@ -2260,7 +2357,13 @@ export function createResolvers(services) {
             });
           }
 
-          // TODO: Add admin role check
+          const isAdmin = await userService.isAdmin(context.user.id);
+          if (!isAdmin) {
+            throw new GraphQLError('Acces interzis: necesită rol admin', {
+              extensions: { code: 'FORBIDDEN' }
+            });
+          }
+
           const { orderId, amount, reason, metadata } = input;
           
           const refund = await subscriptionService.createRefund(orderId, amount, reason, metadata);
@@ -2279,7 +2382,13 @@ export function createResolvers(services) {
             });
           }
 
-          // TODO: Add admin role check
+          const isAdmin = await userService.isAdmin(context.user.id);
+          if (!isAdmin) {
+            throw new GraphQLError('Acces interzis: necesită rol admin', {
+              extensions: { code: 'FORBIDDEN' }
+            });
+          }
+
           await subscriptionService.cancelSubscription(subscriptionId, true, reason);
 
           const { data: subscription, error } = await supabase

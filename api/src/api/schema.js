@@ -574,6 +574,11 @@ export const typeDefs = `#graphql
     paymentMethodId: ID
     billingDetails: BillingDetails
     metadata: JSON
+    stripeInvoiceId: String
+    oblioSeries: String
+    oblioNumber: String
+    oblioLink: String
+    oblioStatus: String
     createdAt: String!
     updatedAt: String!
   }
@@ -825,6 +830,7 @@ export const typeDefs = `#graphql
     getPaymentMetrics(startDate: String, endDate: String): PaymentMetrics!
     getOrphanPayments(limit: Int, offset: Int): [PaymentLog!]!
     getWebhookStatus(webhookId: String): WebhookStatus
+    getPaymentsOpsHealth: PaymentsOpsHealth!
 
     # Cron Job Management (Admin Only)
     getCronJobStatus(jobName: String!): CronJobStatus!
@@ -1022,6 +1028,16 @@ export const typeDefs = `#graphql
     processingTimeMs: Int
     retryCount: Int!
     errorMessage: String
+  }
+
+  type PaymentsOpsHealth {
+    paymentsEnabled: Boolean!
+    oblioEnabled: Boolean!
+    failedOblioCount: Int!
+    pendingOblioCount: Int!
+    failedOrdersCount: Int!
+    pastDueSubscriptionsCount: Int!
+    recentPaymentLogs: [PaymentLog!]!
   }
 
   # =====================================================
@@ -1280,6 +1296,9 @@ export const typeDefs = `#graphql
     currency: String!
     typeLabel: String!
     statusLabel: String!
+    stripeSubscriptionId: String
+    stripeCustomerId: String
+    cancelAtPeriodEnd: Boolean
   }
 
   type AdminFavoriteNews {
@@ -1332,6 +1351,11 @@ export const typeDefs = `#graphql
     description: String!
     statusLabel: String!
     methodLabel: String!
+    oblioSeries: String
+    oblioNumber: String
+    oblioLink: String
+    oblioStatus: String
+    stripeInvoiceId: String
   }
 
   type AdminUsersResponse {

@@ -96,28 +96,62 @@ Prefixul `/api` poate fi adăugat de gateway-ul din față; în codul Express de
 
 **Evenimente mapate** (extras `order_id` / `orderId` din metadata sau din subscripție la factură):
 
-- `checkout.session.completed` → succes plată comandă.
+- `checkout.session.completed` → succes plată comandă + activare + enqueue Oblio.
 - `checkout.session.async_payment_succeeded` → succes plată asincronă.
 - `checkout.session.async_payment_failed` / `checkout.session.expired` → eșec / anulare checkout.
-- `invoice.paid` → succes (abonamente).
-- `invoice_payment.paid` → succes (variante API noi Stripe Billing).
-- `payment_intent.succeeded` / `payment_intent.payment_failed` → Elements.
-- `customer.subscription.deleted` → anulare (status comandă `CANCELED` pe ramura fără RPC complet).
+- `payment_intent.succeeded` / `payment_intent.payment_failed` → Elements (legacy path).
+- `invoice.paid` / `invoice_payment.paid` → prima plată **sau** reînnoire (order nou + `current_period_end`) + Oblio.
+- `invoice.payment_failed` → `PAST_DUE` + email.
+- `customer.subscription.updated` → sync status / period / tier local + profil.
+- `customer.subscription.deleted` → cancel local + `profiles.subscription_tier = free`.
 
 **La succes (`SUCCEEDED`)**
 
 1. Legare / creare `subscriptions` după `order.metadata.tier_id` (dacă lipsea).
 2. Apel **`update_order_status_rpc`** (funcție DB `payments.update_order_status`): comandă `SUCCEEDED`, log `PAYMENT_SUCCEEDED`, subscripție `ACTIVE` unde e cazul.
 3. **`activateSubscription`** (serviciu JS) → **`payments.activate_subscription`** în DB: sincronizare `profiles.subscription_tier`.
+4. Emitere factură fiscală Oblio (vezi `docs/OBLIO_INVOICES.md`) + email confirmare.
+
+---
+
+## 5b. Local development (Stripe CLI)
+
+```bash
+# Terminal 1 — API local
+PAYMENTS_ENABLED=true npm run dev
+
+# Terminal 2 — forward webhooks
+stripe listen --forward-to localhost:4000/webhook/stripe
+```
+
+Pune `whsec_…` din CLI în `STRIPE_WEBHOOK_SIGNING_SECRET` (sau `STRIPE_WEBHOOK_SECRET`).
+Folosește `STRIPE_SANDBOX_SECRET_KEY` / Price IDs din **test mode**.
+
+---
+
+## 5c. Sandbox vs production
+
+| | Sandbox | Production |
+|--|---------|------------|
+| Keys | `STRIPE_SANDBOX_SECRET_KEY` | `STRIPE_PRODUCTION_SECRET_KEY` |
+| Webhook secret | `STRIPE_WEBHOOK_SIGNING_SECRET_SANDBOX` sau CLI | `STRIPE_WEBHOOK_SIGNING_SECRET_PRODUCTION` |
+| `PAYMENTS_ENABLED` | `true` local | `true` doar la go-live |
+| Prices în DB | Price IDs test | Price IDs live |
+| Oblio | `OBLIO_ENABLED=false` (recomandat) | `true` + serie fiscală |
+
+Evenimente de selectat pe endpoint-ul Dashboard: cele din lista de mai sus.
 
 ---
 
 ## 6. Model de date (rezumat)
 
 - **`orders.payment_provider_reference`**: ID tranzacție gateway; pentru Stripe poate fi `cs_…` (session) sau `pi_…` (PaymentIntent), după flux.
+- **`orders.stripe_invoice_id` / `oblio_*`**: legătură Stripe Invoice + factură fiscală Oblio.
 - **`payments.subscription_tiers.stripe_price_id`**: Price Stripe sau `lookup_key`.
 - Comanda creată la `startCheckout` include în **`metadata`** `tier_id` (necesar pentru webhook).
+- Reînnoirile creează orders noi (`metadata.kind = renewal`).
 
+Maintenance free-tier: `recurring-billing.js` = Oblio queue retry + drift sync ușor (nu charger).
 ---
 
 ## 7. Checklist Stripe Dashboard

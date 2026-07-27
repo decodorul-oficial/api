@@ -73,12 +73,12 @@ router.post('/customer-portal', async (req, res) => {
     }
 
     const { return_url: returnUrlSnake, returnUrl } = req.body || {};
-    const { url } = await subscriptionService.createStripeCustomerPortalSession(
+    const { portalUrl } = await subscriptionService.createStripeCustomerPortalSession(
       req.user.id,
       returnUrl || returnUrlSnake
     );
 
-    return res.status(200).json({ portal_url: url });
+    return res.status(200).json({ portal_url: portalUrl });
   } catch (e) {
     console.error('Stripe customer-portal error:', e);
     const status = e?.code === 'PAYMENTS_DISABLED' ? 503 : 500;
