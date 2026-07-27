@@ -141,70 +141,72 @@ RETURNS TABLE(
 )
 LANGUAGE plpgsql
 SECURITY DEFINER
+SET search_path = public
 AS $$
+#variable_conflict use_column
 BEGIN
   RETURN QUERY
   WITH paid AS (
-    SELECT s.user_id
+    SELECT s.user_id AS uid
     FROM payments.subscriptions s
     WHERE s.status = 'ACTIVE'
   ),
   search_users AS (
-    SELECT ss.user_id,
+    SELECT ss.user_id AS uid,
       jsonb_agg(jsonb_build_object(
         'id', ss.id, 'name', ss.name, 'search_params', ss.search_params
       )) AS saved_searches
     FROM saved_searches ss
-    JOIN paid p ON p.user_id = ss.user_id
+    JOIN paid p ON p.uid = ss.user_id
     WHERE ss.email_notifications_enabled = TRUE
     GROUP BY ss.user_id
   ),
   watch_users AS (
-    SELECT w.user_id,
+    SELECT w.user_id AS uid,
       jsonb_agg(jsonb_build_object(
         'id', w.id, 'label', w.label, 'normalized_key', w.normalized_key
       )) AS legislation_watches
     FROM public.legislation_watches w
-    JOIN paid p ON p.user_id = w.user_id
+    JOIN paid p ON p.uid = w.user_id
     WHERE w.email_enabled = TRUE
     GROUP BY w.user_id
   ),
   category_users AS (
-    SELECT up.id AS user_id
+    SELECT up.id AS uid
     FROM public.user_preferences up
-    JOIN paid p ON p.user_id = up.id
+    JOIN paid p ON p.uid = up.id
     WHERE coalesce((up.notification_settings->>'category_email_enabled')::boolean, false) = true
       AND up.preferred_categories IS NOT NULL
       AND jsonb_array_length(up.preferred_categories) > 0
   ),
   all_user_ids AS (
-    SELECT user_id FROM search_users
+    SELECT su.uid FROM search_users su
     UNION
-    SELECT user_id FROM watch_users
+    SELECT wu.uid FROM watch_users wu
     UNION
-    SELECT user_id FROM category_users
+    SELECT cu.uid FROM category_users cu
   ),
   all_users AS (
     SELECT
-      ids.user_id,
+      ids.uid,
       coalesce(su.saved_searches, '[]'::jsonb) AS saved_searches,
       coalesce(wu.legislation_watches, '[]'::jsonb) AS legislation_watches
     FROM all_user_ids ids
-    LEFT JOIN search_users su ON su.user_id = ids.user_id
-    LEFT JOIN watch_users wu ON wu.user_id = ids.user_id
+    LEFT JOIN search_users su ON su.uid = ids.uid
+    LEFT JOIN watch_users wu ON wu.uid = ids.uid
   )
   SELECT
-    au.user_id,
-    u.email::TEXT AS user_email,
-    coalesce(pr.display_name, u.email)::TEXT AS user_name,
+    au.uid,
+    u.email::TEXT,
+    coalesce(pr.display_name, u.email)::TEXT,
     au.saved_searches,
     au.legislation_watches,
-    coalesce(up.notification_settings, '{}'::jsonb) AS notification_settings,
-    coalesce(up.preferred_categories, '[]'::jsonb) AS preferred_categories
+    coalesce(up.notification_settings, '{}'::jsonb),
+    coalesce(up.preferred_categories, '[]'::jsonb)
   FROM all_users au
-  JOIN auth.users u ON u.id = au.user_id
-  LEFT JOIN public.profiles pr ON pr.id = au.user_id
-  LEFT JOIN public.user_preferences up ON up.id = au.user_id
+  JOIN auth.users u ON u.id = au.uid
+  LEFT JOIN public.profiles pr ON pr.id = au.uid
+  LEFT JOIN public.user_preferences up ON up.id = au.uid
   WHERE u.email_confirmed_at IS NOT NULL
     AND coalesce((up.notification_settings->>'digest_email_enabled')::boolean, true) = true;
 END;

@@ -164,9 +164,10 @@ BEGIN
     RETURN NULL;
   END IF;
 
+  -- Vercel @vercel/node: path must include .js (without → 404). API host ≠ web frontend.
   v_url := coalesce(
-    current_setting('app.settings.instant_alerts_api_url', true),
-    'https://decodoruloficial.ro/api/src/api/cron/instant-watch-alerts'
+    nullif(current_setting('app.settings.instant_alerts_api_url', true), ''),
+    'https://decodorul-oficial-api.vercel.app/api/src/api/cron/instant-watch-alerts.js'
   );
 
   v_body := jsonb_build_object('connection_id', p_connection_id);
@@ -213,5 +214,5 @@ CREATE TRIGGER legislative_connections_instant_alert
 -- SCHEDULE / TRIGGER NOTES (enable after vault secret)
 -- =====================================================
 -- Vault: INSTANT_ALERT_WEBHOOK_SECRET (same value as Vercel env)
--- URL: SELECT set_config('app.settings.instant_alerts_api_url', 'https://api.example.com/api/src/api/cron/instant-watch-alerts', false);
+-- URL default is hardcoded to https://decodorul-oficial-api.vercel.app/api/src/api/cron/instant-watch-alerts.js
 -- Verify: SELECT name FROM vault.secrets WHERE name = 'INSTANT_ALERT_WEBHOOK_SECRET';

@@ -58,15 +58,15 @@
   ],
   "crons": [
     {
-      "path": "/api/src/api/cron/recurring-billing",
+      "path": "/api/src/api/cron/recurring-billing.js",
       "schedule": "0 3 * * *"
     },
     {
-      "path": "/api/src/api/cron/trial-processing",
+      "path": "/api/src/api/cron/trial-processing.js",
       "schedule": "0 4 * * *"
     },
     {
-      "path": "/api/src/api/cron/alerts-ops-healthcheck",
+      "path": "/api/src/api/cron/alerts-ops-healthcheck.js",
       "schedule": "0 7 * * 1-5"
     }
   ]

@@ -35,10 +35,10 @@ BEGIN
     RETURN NULL;
   END IF;
 
-  -- TODO: replace with production API URL before scheduling
+  -- Vercel @vercel/node: path must include .js (without → 404). API host ≠ web frontend.
   v_url := coalesce(
-    current_setting('app.settings.alerts_api_base_url', true),
-    'https://decodoruloficial.ro/api/src/api/cron/alerts-digest-slot'
+    nullif(current_setting('app.settings.alerts_api_base_url', true), ''),
+    'https://decodorul-oficial-api.vercel.app/api/src/api/cron/alerts-digest-slot.js'
   );
 
   v_body := jsonb_build_object(
@@ -113,8 +113,8 @@ GRANT EXECUTE ON FUNCTION public.post_alerts_digest_slot(TEXT) TO service_role;
 --
 -- EET (UTC+2) — winter: subtract 1h from UTC hour column above
 --
--- To set API URL without redeploying SQL:
---   SELECT set_config('app.settings.alerts_api_base_url', 'https://api.example.com/api/src/api/cron/alerts-digest-slot', false);
+-- To set API URL without redeploying SQL (session-only; prefer hardcoding in function):
+--   SELECT set_config('app.settings.alerts_api_base_url', 'https://decodorul-oficial-api.vercel.app/api/src/api/cron/alerts-digest-slot.js', false);
 --
 -- Verify vault:
 --   SELECT name FROM vault.secrets WHERE name = 'ALERTS_CRON_SECRET';
