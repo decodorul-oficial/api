@@ -384,7 +384,9 @@ export class DailyDigestService {
       ? `1 noutate legislativă — ${currentDate}`
       : `${totalCount} noutăți legislative — ${currentDate}`;
 
-    const to = process.env.DIGEST_CANARY_EMAIL || user.user_email;
+    // Canary override only when caller sets user_email to the canary address.
+    // Never redirect all digests via DIGEST_CANARY_EMAIL env alone.
+    const to = user.user_email;
 
     const validation = validateDigestEmailPayload({
       to,

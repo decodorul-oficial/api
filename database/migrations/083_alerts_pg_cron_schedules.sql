@@ -52,7 +52,8 @@ BEGIN
       'Content-Type', 'application/json',
       'Authorization', 'Bearer ' || v_secret
     ),
-    body := v_body
+    body := v_body,
+    timeout_milliseconds := 55000
   ) INTO v_request_id;
 
   RETURN v_request_id;
