@@ -32,6 +32,7 @@ export const typeDefs = `#graphql
   type UserPreferences {
     preferredCategories: [String!]!
     notificationSettings: JSON!
+    professionPackId: String
     createdAt: String!
     updatedAt: String!
   }
@@ -864,6 +865,20 @@ export const typeDefs = `#graphql
     # Email notification info for current user
     getEmailNotificationInfo: EmailNotificationInfo!
     getEmailNotificationStats(daysBack: Int): EmailNotificationStats!
+
+    # Legislation watches
+    getLegislationWatches: [LegislationWatch!]!
+    getLegislationWatchLimitInfo: LegislationWatchLimitInfo!
+
+    # Email ops (admin)
+    getEmailOpsSummary: EmailOpsSummary!
+
+    # Profession packs
+    getProfessionPacks: [ProfessionPack!]!
+
+    # In-app notifications
+    getMyNotifications(limit: Int, offset: Int): [UserNotification!]!
+    unreadNotificationCount: Int!
     
     # =====================================================
     # COMMENT QUERIES
@@ -1054,6 +1069,115 @@ export const typeDefs = `#graphql
     totalSent: Int!
     totalFailed: Int!
     successRate: Float!
+  }
+
+  # =====================================================
+  # LEGISLATION WATCHES & ALERT OPS
+  # =====================================================
+
+  enum LegislationWatchTargetType {
+    STIRI
+    EXTERNAL
+    NORMALIZED_REF
+  }
+
+  enum AlertIntensity {
+    IMPORTANT
+    CRITICAL
+    MENTIONS
+  }
+
+  type LegislationWatch {
+    id: ID!
+    label: String!
+    targetType: LegislationWatchTargetType!
+    targetStiriId: ID
+    targetExternalId: ID
+    normalizedKey: String!
+    normalizedIdentifier: JSON!
+    alertIntensity: AlertIntensity!
+    relationFilters: [String!]!
+    emailEnabled: Boolean!
+    instantEnabled: Boolean!
+    minConfidence: Float!
+    createdAt: String!
+    updatedAt: String!
+  }
+
+  type LegislationWatchLimitInfo {
+    watchLimit: Int!
+    watchCount: Int!
+    canAddMore: Boolean!
+    emailLimit: Int!
+    emailCount: Int!
+    canEnableMoreEmail: Boolean!
+    showLimitWarning: Boolean!
+  }
+
+  input AddLegislationWatchInput {
+    label: String!
+    targetType: LegislationWatchTargetType!
+    targetStiriId: ID
+    targetExternalId: ID
+    identifierText: String
+    alertIntensity: AlertIntensity
+    emailEnabled: Boolean
+  }
+
+  type EmailOpsTodaySummary {
+    runDay: String
+    slotsOk: Int!
+    slotsFailed: Int!
+    slotsOverlap: Int!
+    emailsSent: Int!
+    usersSkipped: Int!
+    usersFailed: Int!
+    primaryArticles: Int!
+    quotaHit: Boolean!
+    durationP50Ms: Float
+    durationP95Ms: Float
+  }
+
+  type EmailSlotRunSummary {
+    id: ID!
+    slot: String!
+    runDay: String!
+    status: String!
+    usersSent: Int!
+    usersSkipped: Int!
+    usersFailed: Int!
+    primaryArticlesSent: Int!
+    resendQuotaHit: Boolean!
+    errorSummary: String
+    durationMs: Int
+    startedAt: String
+    finishedAt: String
+  }
+
+  type EmailOpsSummary {
+    today: EmailOpsTodaySummary!
+    recentSlots: [EmailSlotRunSummary!]!
+  }
+
+  type ProfessionPack {
+    id: ID!
+    nameRo: String!
+    descriptionRo: String
+    categories: [String!]!
+    keywords: [String!]!
+    anchorIdentifiers: [String!]!
+    sortOrder: Int!
+  }
+
+  type UserNotification {
+    id: ID!
+    type: String!
+    title: String!
+    body: String
+    href: String
+    payload: JSON
+    readAt: String
+    createdAt: String!
   }
 
   # =====================================================
@@ -1434,6 +1558,28 @@ export const typeDefs = `#graphql
     deleteSavedSearch(id: ID!): Boolean!
     toggleFavoriteSearch(id: ID!): SavedSearch!
     toggleEmailNotifications(id: ID!, enabled: Boolean!): SavedSearch!
+
+    # Legislation watches & alert settings
+    addLegislationWatch(input: AddLegislationWatchInput!): LegislationWatch!
+    updateLegislationWatch(id: ID!, alertIntensity: AlertIntensity, label: String): LegislationWatch!
+    removeLegislationWatch(id: ID!): Boolean!
+    toggleWatchEmail(id: ID!, enabled: Boolean!): LegislationWatch!
+    toggleWatchInstant(id: ID!, enabled: Boolean!): LegislationWatch!
+    bulkSetWatchEmail(enabled: Boolean!): Int!
+    updateAlertMasterSettings(
+      digestEmailEnabled: Boolean
+      instantMasterEnabled: Boolean
+      categoryEmailEnabled: Boolean
+    ): JSON!
+    disableAllEmailAlerts: Boolean!
+
+    # Profession packs
+    applyProfessionPack(packId: String!): JSON!
+
+    # In-app notifications
+    markNotificationRead(id: ID!): UserNotification!
+    markAllNotificationsRead: Int!
+    rateAlert(notificationId: ID!, rating: Int!): Boolean!
     
     # =====================================================
     # EMAIL TEMPLATE MUTATIONS (ADMIN ONLY)

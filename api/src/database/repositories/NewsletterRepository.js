@@ -308,43 +308,25 @@ export class NewsletterRepository {
   }
 
   /**
-   * Trimite un email folosind serviciul de email
-   * @param {Object} emailData - Datele email-ului
-   * @returns {Promise<boolean>} True dacă email-ul a fost trimis cu succes
+   * Trimite un email prin ResendEmailService.
+   * @param {Object} emailData - { to, subject, html, text?, from? }
+   * @returns {Promise<boolean|{ id: string }>}
    */
   async sendEmail(emailData) {
     try {
-      // Pentru moment, simulăm trimiterea email-ului
-      // În implementarea reală, aici ar trebui să integrezi cu un serviciu de email
-      // precum SendGrid, Mailgun, sau AWS SES
-      
-      console.log('Sending email:', {
+      const { ResendEmailService } = await import('../../core/services/ResendEmailService.js');
+      const resend = new ResendEmailService();
+      const result = await resend.sendEmail({
         to: emailData.to,
-        subject: emailData.subject,
-        from: emailData.from
-      });
-
-      // Simulare - în producție, înlocuiește cu apelul real la serviciul de email
-      // Exemplu pentru SendGrid:
-      /*
-      const sgMail = require('@sendgrid/mail');
-      sgMail.setApiKey(process.env.SENDGRID_API_KEY);
-      
-      const msg = {
-        to: emailData.to,
-        from: emailData.from,
         subject: emailData.subject,
         html: emailData.html,
-      };
-      
-      await sgMail.send(msg);
-      */
-
-      // Pentru testare, returnează true
-      return true;
+        text: emailData.text,
+        from: emailData.from,
+      });
+      return result?.id ? result : true;
     } catch (error) {
-      console.error('Error sending email:', error);
-      return false;
+      console.error('Error sending email via Resend:', error);
+      throw error;
     }
   }
 }

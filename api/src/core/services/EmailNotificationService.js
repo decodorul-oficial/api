@@ -285,7 +285,7 @@ export class EmailNotificationService {
   async checkIfNotificationAlreadySent(savedSearchId, articleId) {
     try {
       const { data, error } = await this.savedSearchRepository.supabase
-        .from('payments.email_notification_logs')
+        .from('email_notification_logs')
         .select('id')
         .eq('saved_search_id', savedSearchId)
         .eq('article_id', articleId)
@@ -331,7 +331,7 @@ export class EmailNotificationService {
       };
 
       const { error } = await this.savedSearchRepository.supabase
-        .from('payments.email_notification_logs')
+        .from('email_notification_logs')
         .insert([logData]);
 
       if (error) {
@@ -374,7 +374,7 @@ export class EmailNotificationService {
       since.setDate(since.getDate() - daysBack);
 
       let query = this.savedSearchRepository.supabase
-        .from('payments.email_notification_logs')
+        .from('email_notification_logs')
         .select('*', { count: 'exact' })
         .gte('created_at', since.toISOString());
 

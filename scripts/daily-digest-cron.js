@@ -2,13 +2,14 @@
 
 /**
  * Daily Digest Cron Job
- * 
- * Acest script procesează digest-urile zilnice de email pentru utilizatorii cu notificări active.
- * Ar trebui să ruleze o dată pe zi, de luni până vineri, la ora 08:00.
- * 
- * Configurare cron:
+ *
+ * @deprecated for production. Canonical path:
+ *   Supabase pg_cron (:55 L–V) → Vercel /api/src/api/cron/alerts-digest-slot → Resend.
+ * Keep this script for local/dev testing only.
+ *
+ * Configurare cron (NON-PROD):
  * 0 8 * * 1-5 /usr/bin/node /path/to/scripts/daily-digest-cron.js
- * 
+ *
  * Variabile de mediu necesare:
  * - SUPABASE_URL
  * - SUPABASE_SERVICE_ROLE_KEY

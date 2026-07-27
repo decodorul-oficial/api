@@ -16,7 +16,7 @@ export class EmailTemplateRepository {
   async getAllTemplates() {
     try {
       const { data, error } = await this.supabase
-        .from('payments.email_templates')
+        .from('email_templates')
         .select('*')
         .order('created_at', { ascending: false });
 
@@ -45,7 +45,7 @@ export class EmailTemplateRepository {
   async getTemplateByName(templateName) {
     try {
       const { data, error } = await this.supabase
-        .from('payments.email_templates')
+        .from('email_templates')
         .select('*')
         .eq('template_name', templateName)
         .single();
@@ -78,7 +78,7 @@ export class EmailTemplateRepository {
   async getTemplateById(templateId) {
     try {
       const { data, error } = await this.supabase
-        .from('payments.email_templates')
+        .from('email_templates')
         .select('*')
         .eq('id', templateId)
         .single();
@@ -111,7 +111,7 @@ export class EmailTemplateRepository {
   async createTemplate(templateData) {
     try {
       const { data, error } = await this.supabase
-        .from('payments.email_templates')
+        .from('email_templates')
         .insert([templateData])
         .select()
         .single();
@@ -147,7 +147,7 @@ export class EmailTemplateRepository {
   async updateTemplate(templateId, updateData) {
     try {
       const { data, error } = await this.supabase
-        .from('payments.email_templates')
+        .from('email_templates')
         .update(updateData)
         .eq('id', templateId)
         .select()
@@ -188,7 +188,7 @@ export class EmailTemplateRepository {
   async deleteTemplate(templateId) {
     try {
       const { data, error } = await this.supabase
-        .from('payments.email_templates')
+        .from('email_templates')
         .delete()
         .eq('id', templateId)
         .select()
@@ -224,7 +224,7 @@ export class EmailTemplateRepository {
   async isTemplateInUse(templateId) {
     try {
       const { data, error } = await this.supabase
-        .from('payments.email_notification_logs')
+        .from('email_notification_logs')
         .select('id')
         .eq('template_id', templateId)
         .limit(1);

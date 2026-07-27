@@ -499,6 +499,7 @@ export class UserService {
         return {
           preferredCategories: [],
           notificationSettings: {},
+          professionPackId: null,
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString()
         };
@@ -507,6 +508,7 @@ export class UserService {
       return {
         preferredCategories: preferences.preferred_categories || [],
         notificationSettings: preferences.notification_settings || {},
+        professionPackId: preferences.profession_pack_id || null,
         createdAt: preferences.created_at,
         updatedAt: preferences.updated_at
       };

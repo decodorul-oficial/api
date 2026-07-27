@@ -96,6 +96,15 @@ import DailySynthesesService from './core/services/DailySynthesesService.js';
 import AnalyticsService from './core/services/AnalyticsService.js';
 import LegislativeConnectionsService from './core/services/LegislativeConnectionsService.js';
 import { SavedSearchService } from './core/services/SavedSearchService.js';
+import { LegislationWatchRepository } from './database/repositories/LegislationWatchRepository.js';
+import { LegislationWatchService } from './core/services/LegislationWatchService.js';
+import { ProfessionPackService } from './core/services/ProfessionPackService.js';
+import { NotificationService } from './core/services/NotificationService.js';
+import { DailyDigestService } from './core/services/DailyDigestService.js';
+import { EmailTemplateRepository } from './database/repositories/EmailTemplateRepository.js';
+import { EmailTemplateService } from './core/services/EmailTemplateService.js';
+import { ResendEmailService } from './core/services/ResendEmailService.js';
+import { AdminAlertService } from './core/services/AdminAlertService.js';
 
 // Importă middleware-urile
 import { createAuthMiddleware } from './middleware/auth.js';
@@ -186,6 +195,7 @@ async function initializeServer() {
     const dailySynthesesRepository = new DailySynthesesRepository(serviceClient);
     const analyticsRepository = new AnalyticsRepository(serviceClient);
     const savedSearchRepository = new SavedSearchRepository(serviceClient);
+    const legislationWatchRepository = new LegislationWatchRepository(serviceClient);
 
     // Inițializează serviciile (injectăm explicit clientul Supabase și repository-urile)
     const stiriService = new StiriService(stiriRepository);
@@ -195,9 +205,41 @@ async function initializeServer() {
     const analyticsService = new AnalyticsService(analyticsRepository);
     const legislativeConnectionsService = new LegislativeConnectionsService(serviceClient);
     const savedSearchService = new SavedSearchService(savedSearchRepository, userService);
+    const legislationWatchService = new LegislationWatchService(legislationWatchRepository, serviceClient);
+    const professionPackService = new ProfessionPackService(
+      serviceClient,
+      legislationWatchService,
+      savedSearchRepository
+    );
+    const notificationService = new NotificationService(serviceClient);
+
+    const emailTemplateRepository = new EmailTemplateRepository(serviceClient);
+    const emailTemplateService = new EmailTemplateService(emailTemplateRepository);
+    const resendEmailService = new ResendEmailService();
+    const adminAlertService = new AdminAlertService(serviceClient, resendEmailService);
+    const dailyDigestService = new DailyDigestService(
+      serviceClient,
+      emailTemplateService,
+      newsletterRepository,
+      { resendService: resendEmailService, adminAlertService, stiriService }
+    );
 
     // Creează resolver-ii
-    const resolvers = createResolvers({ userService, stiriService, userRepository, newsletterService, dailySynthesesService, analyticsService, legislativeConnectionsService, savedSearchService, supabaseClient: serviceClient });
+    const resolvers = createResolvers({
+      userService,
+      stiriService,
+      userRepository,
+      newsletterService,
+      dailySynthesesService,
+      analyticsService,
+      legislativeConnectionsService,
+      savedSearchService,
+      legislationWatchService,
+      professionPackService,
+      notificationService,
+      dailyDigestService,
+      supabaseClient: serviceClient,
+    });
 
     // Configurează serverul Apollo
     server = new ApolloServer({

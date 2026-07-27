@@ -27,6 +27,27 @@
     {
       "src": "api/src/api/cron/monitoring.js",
       "use": "@vercel/node"
+    },
+    {
+      "src": "api/src/api/cron/alerts-digest-slot.js",
+      "use": "@vercel/node",
+      "config": {
+        "maxDuration": 60
+      }
+    },
+    {
+      "src": "api/src/api/cron/alerts-ops-healthcheck.js",
+      "use": "@vercel/node",
+      "config": {
+        "maxDuration": 60
+      }
+    },
+    {
+      "src": "api/src/api/cron/instant-watch-alerts.js",
+      "use": "@vercel/node",
+      "config": {
+        "maxDuration": 60
+      }
     }
   ],
   "rewrites": [
@@ -43,6 +64,10 @@
     {
       "path": "/api/src/api/cron/trial-processing",
       "schedule": "0 4 * * *"
+    },
+    {
+      "path": "/api/src/api/cron/alerts-ops-healthcheck",
+      "schedule": "0 7 * * 1-5"
     }
   ]
 }

@@ -1,8 +1,11 @@
 # Daily Digest Email System
 
+> **Production (canonical):** Supabase `pg_cron` L–V at `:55` (Europe/Bucharest) → HTTP POST Vercel handler `alerts-digest-slot` → `DailyDigestService.processSlot` → **Resend** (`ResendEmailService`).  
+> Local macOS/Python/`daily-digest-cron.js` setups are **non-production** / deprecated for live sends.
+
 ## Overview
 
-The Daily Digest Email System is a reworked version of the email notification system that sends consolidated daily emails to users instead of instant notifications. This prevents email spam by sending a single, comprehensive email per day summarizing all new articles that match a user's saved searches.
+The Daily Digest Email System is a reworked version of the email notification system that sends consolidated emails to users (slot-based digests + legislation watches). This prevents email spam by consolidating matches and deduplicating articles per user per day.
 
 ## Architecture
 

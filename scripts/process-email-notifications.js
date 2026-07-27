@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 
 /**
- * Script pentru procesarea notificărilor email
- * Acest script ar trebui să fie rulat periodic (de ex. prin cron job)
- * pentru a verifica articolele noi și a trimite notificări email
+ * Script pentru procesarea notificărilor email (legacy instant path).
+ *
+ * @deprecated — Faza 3 uses watches + pg_net → instant-watch-alerts.
+ * Do not schedule this in production.
  */
 
 import { createClient } from '@supabase/supabase-js';

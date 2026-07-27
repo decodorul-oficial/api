@@ -69,6 +69,9 @@ import { EmailNotificationService } from '../core/services/EmailNotificationServ
 import { supabaseServiceClient as supabase } from '../database/supabaseClient.js';
 import { cronJobResolvers } from './resolvers/cronJobResolvers.js';
 import { createAdminUsersResolvers } from './resolvers/adminUsersResolvers.js';
+import { createLegislationWatchResolvers } from './resolvers/legislationWatchResolvers.js';
+import { createProfessionPackResolvers } from './resolvers/professionPackResolvers.js';
+import { createNotificationResolvers } from './resolvers/notificationResolvers.js';
 
 /**
  * Helper function to check if user has access to high limits (active subscription or trial)
@@ -142,7 +145,21 @@ const scalarResolvers = {
  * @returns {Object} Resolver-ii GraphQL
  */
 export function createResolvers(services) {
-  const { userService, stiriService, userRepository, newsletterService, dailySynthesesService, analyticsService, legislativeConnectionsService, savedSearchService, supabaseClient } = services;
+  const {
+    userService,
+    stiriService,
+    userRepository,
+    newsletterService,
+    dailySynthesesService,
+    analyticsService,
+    legislativeConnectionsService,
+    savedSearchService,
+    legislationWatchService,
+    professionPackService,
+    notificationService,
+    dailyDigestService,
+    supabaseClient,
+  } = services;
   const subscriptionService = new SubscriptionService(supabaseClient);
   const commentService = new CommentService(supabaseClient, userService, subscriptionService);
   const favoriteNewsRepository = new FavoriteNewsRepository(supabaseClient);
@@ -163,6 +180,20 @@ export function createResolvers(services) {
     userService, 
     supabaseClient, 
     newsletterRepository: newsletterService.newsletterRepository 
+  });
+
+  const legislationWatchResolvers = createLegislationWatchResolvers({
+    legislationWatchService,
+    dailyDigestService,
+    userService,
+  });
+
+  const professionPackResolvers = createProfessionPackResolvers({
+    professionPackService,
+  });
+
+  const notificationResolvers = createNotificationResolvers({
+    notificationService,
   });
 
   // Minimal in-memory throttling map for updateOrderStatus (orderId+ip)
@@ -558,6 +589,9 @@ export function createResolvers(services) {
     Query: {
       ...cronJobResolvers.Query,
       ...adminUsersResolvers.Query,
+      ...legislationWatchResolvers.Query,
+      ...professionPackResolvers.Query,
+      ...notificationResolvers.Query,
       // Query-uri pentru știri
       getStiri: async (parent, args, context) => {
         try {
@@ -1779,6 +1813,9 @@ export function createResolvers(services) {
     Mutation: {
       ...cronJobResolvers.Mutation,
       ...adminUsersResolvers.Mutation,
+      ...legislationWatchResolvers.Mutation,
+      ...professionPackResolvers.Mutation,
+      ...notificationResolvers.Mutation,
       // Mutații pentru autentificare
       signUp: async (parent, { input }, context) => {
         try {
