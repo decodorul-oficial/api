@@ -48,6 +48,13 @@
       "config": {
         "maxDuration": 60
       }
+    },
+    {
+      "src": "api/src/api/cron/newsletter-weekly.js",
+      "use": "@vercel/node",
+      "config": {
+        "maxDuration": 60
+      }
     }
   ],
   "rewrites": [
@@ -68,6 +75,10 @@
     {
       "path": "/api/src/api/cron/alerts-ops-healthcheck.js",
       "schedule": "0 7 * * 1-5"
+    },
+    {
+      "path": "/api/src/api/cron/newsletter-weekly.js",
+      "schedule": "0 5 * * 1"
     }
   ]
 }

@@ -38,6 +38,19 @@ export class UserService {
   }
 
   /**
+   * signInWithPassword pe clientul service_role lasă JWT-ul userului pe singleton.
+   * Apoi RLS tratează request-urile ca `authenticated` (nu service_role) — ex. blochează
+   * newsletter_subscribers. Curățăm sesiunea locală imediat după ce am extras token-ul.
+   */
+  async _clearServiceAuthSession() {
+    try {
+      await this.supabase.auth.signOut({ scope: 'local' });
+    } catch (error) {
+      console.warn('Failed to clear service-client auth session:', error?.message || error);
+    }
+  }
+
+  /**
    * Procesează parola - decriptează dacă este criptată, altfel o returnează ca atare
    * @param {string} password - Parola de procesat
    * @param {boolean} isSignUp - Dacă este pentru înregistrare (necesită validare strictă)
@@ -133,6 +146,8 @@ export class UserService {
         email: validatedData.email,
         password: processedPassword
       });
+      const sessionToken = signInData?.session?.access_token || '';
+      await this._clearServiceAuthSession();
 
       if (signInError) {
         // Dacă autentificarea eșuează (politici proiect), întoarcem user fără token
@@ -154,7 +169,7 @@ export class UserService {
       }
 
       return {
-        token: signInData.session?.access_token || '',
+        token: sessionToken,
         user: {
           id: createdUser.user.id,
           email: createdUser.user.email,
@@ -205,16 +220,21 @@ export class UserService {
       });
 
       if (authError) {
+        await this._clearServiceAuthSession();
         throw new GraphQLError(`Eroare la autentificare: ${authError.message}`, {
           extensions: { code: 'AUTH_ERROR' }
         });
       }
 
       if (!authData.user) {
+        await this._clearServiceAuthSession();
         throw new GraphQLError('Credențiale invalide', {
           extensions: { code: 'AUTH_ERROR' }
         });
       }
+
+      const sessionToken = authData.session?.access_token;
+      await this._clearServiceAuthSession();
 
       // Obține profilul utilizatorului
       const profile = await this.userRepository.getProfileById(authData.user.id);
@@ -225,7 +245,7 @@ export class UserService {
       }
 
       return {
-        token: authData.session?.access_token,
+        token: sessionToken,
         user: {
           id: authData.user.id,
           email: authData.user.email,
@@ -280,6 +300,7 @@ export class UserService {
         email,
         password: processedCurrentPassword
       });
+      await this._clearServiceAuthSession();
 
       if (verifyError) {
         throw new GraphQLError('Parola curentă este incorectă', {

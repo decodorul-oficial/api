@@ -308,6 +308,32 @@ export class NewsletterRepository {
   }
 
   /**
+   * Listează abonații activi (status = subscribed) pentru trimiterea newsletter-ului.
+   * @returns {Promise<Array<{ email: string, locale: string }>>}
+   */
+  async listSubscribed() {
+    try {
+      const { data, error } = await this.supabase
+        .from(this.tableName)
+        .select('email, locale')
+        .eq('status', 'subscribed')
+        .order('email', { ascending: true });
+
+      if (error) {
+        throw new GraphQLError(`Eroare la listarea abonaților: ${error.message}`, {
+          extensions: { code: 'DATABASE_ERROR' }
+        });
+      }
+      return data || [];
+    } catch (error) {
+      if (error instanceof GraphQLError) throw error;
+      throw new GraphQLError('Eroare internă la listarea abonaților', {
+        extensions: { code: 'INTERNAL_ERROR' }
+      });
+    }
+  }
+
+  /**
    * Trimite un email prin ResendEmailService.
    * @param {Object} emailData - { to, subject, html, text?, from? }
    * @returns {Promise<boolean|{ id: string }>}
