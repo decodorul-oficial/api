@@ -6,7 +6,9 @@
 
 import { GraphQLError } from 'graphql';
 import { z } from 'zod';
+import { createClient } from '@supabase/supabase-js';
 import { decryptPassword, isEncryptedPassword } from '../../utils/crypto.js';
+import { supabaseConfig } from '../../config/index.js';
 
 /**
  * Scheme de validare pentru input-uri
@@ -38,9 +40,32 @@ export class UserService {
   }
 
   /**
+   * Client efemer cu anon key pentru password grant.
+   * Nu folosim service_role + signOut: signOut invalidează refresh token-ul
+   * și setSession pe frontend eșuează („Auth session missing”).
+   * @returns {import('@supabase/supabase-js').SupabaseClient}
+   */
+  _createAuthGrantClient() {
+    if (!supabaseConfig.anonKey) {
+      throw new GraphQLError('SUPABASE_ANON_KEY lipsește din configurația API', {
+        extensions: { code: 'INTERNAL_ERROR' }
+      });
+    }
+    return createClient(supabaseConfig.url, supabaseConfig.anonKey, {
+      auth: {
+        autoRefreshToken: false,
+        persistSession: false
+      }
+    });
+  }
+
+  /**
    * signInWithPassword pe clientul service_role lasă JWT-ul userului pe singleton.
    * Apoi RLS tratează request-urile ca `authenticated` (nu service_role) — ex. blochează
    * newsletter_subscribers. Curățăm sesiunea locală imediat după ce am extras token-ul.
+   *
+   * Notă: pentru login/signup folosește `_createAuthGrantClient()` — nu apela signOut
+   * pe sesiunea care trebuie returnată clientului.
    */
   async _clearServiceAuthSession() {
     try {
@@ -142,17 +167,19 @@ export class UserService {
       await this.setupTrialForNewUser(createdUser.user.id);
 
       // Generează sesiune după creare (deoarece Admin API nu returnează session)
-      const { data: signInData, error: signInError } = await this.supabase.auth.signInWithPassword({
+      const authGrantClient = this._createAuthGrantClient();
+      const { data: signInData, error: signInError } = await authGrantClient.auth.signInWithPassword({
         email: validatedData.email,
         password: processedPassword
       });
       const sessionToken = signInData?.session?.access_token || '';
-      await this._clearServiceAuthSession();
+      const refreshToken = signInData?.session?.refresh_token || '';
 
       if (signInError) {
         // Dacă autentificarea eșuează (politici proiect), întoarcem user fără token
         return {
           token: '',
+          refreshToken: '',
           user: {
             id: createdUser.user.id,
             email: createdUser.user.email,
@@ -170,6 +197,7 @@ export class UserService {
 
       return {
         token: sessionToken,
+        refreshToken,
         user: {
           id: createdUser.user.id,
           email: createdUser.user.email,
@@ -213,28 +241,27 @@ export class UserService {
       // Procesează parola (decriptează dacă este criptată) fără validare strictă pentru autentificare
       const processedPassword = this.processPassword(validatedData.password, false);
 
-      // Autentificare în Supabase Auth
-      const { data: authData, error: authError } = await this.supabase.auth.signInWithPassword({
+      // Autentificare în Supabase Auth (client anon efemer — nu invalida refresh token)
+      const authGrantClient = this._createAuthGrantClient();
+      const { data: authData, error: authError } = await authGrantClient.auth.signInWithPassword({
         email: validatedData.email,
         password: processedPassword
       });
 
       if (authError) {
-        await this._clearServiceAuthSession();
         throw new GraphQLError(`Eroare la autentificare: ${authError.message}`, {
           extensions: { code: 'AUTH_ERROR' }
         });
       }
 
       if (!authData.user) {
-        await this._clearServiceAuthSession();
         throw new GraphQLError('Credențiale invalide', {
           extensions: { code: 'AUTH_ERROR' }
         });
       }
 
       const sessionToken = authData.session?.access_token;
-      await this._clearServiceAuthSession();
+      const refreshToken = authData.session?.refresh_token || '';
 
       // Obține profilul utilizatorului
       const profile = await this.userRepository.getProfileById(authData.user.id);
@@ -246,6 +273,7 @@ export class UserService {
 
       return {
         token: sessionToken,
+        refreshToken,
         user: {
           id: authData.user.id,
           email: authData.user.email,
@@ -295,12 +323,12 @@ export class UserService {
       const processedCurrentPassword = this.processPassword(currentPassword, false);
       const processedNewPassword = this.processPassword(newPassword, true); // validare strictă ca la signUp
 
-      // 2) Verifică parola curentă prin sign-in
-      const { error: verifyError } = await this.supabase.auth.signInWithPassword({
+      // 2) Verifică parola curentă prin sign-in pe client anon efemer
+      const authGrantClient = this._createAuthGrantClient();
+      const { error: verifyError } = await authGrantClient.auth.signInWithPassword({
         email,
         password: processedCurrentPassword
       });
-      await this._clearServiceAuthSession();
 
       if (verifyError) {
         throw new GraphQLError('Parola curentă este incorectă', {

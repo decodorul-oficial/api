@@ -75,6 +75,7 @@ export const typeDefs = `#graphql
 
   type AuthResponse {
     token: String!
+    refreshToken: String
     user: User!
   }
 
