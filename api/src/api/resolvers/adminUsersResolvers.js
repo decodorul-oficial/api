@@ -200,7 +200,8 @@ export function createAdminUsersResolvers(services) {
       email: (parent) => parent.email,
       avatar: (parent) => parent.avatar_url,
       createdAt: (parent) => parent.created_at,
-      lastLoginAt: (parent) => parent.last_sign_in_at,
+      // RPC get_all_users_with_profiles returns last_login_at (from auth.users.last_sign_in_at)
+      lastLoginAt: (parent) => parent.last_login_at ?? parent.last_sign_in_at,
       isActive: (parent) => parent.is_active !== false, // Default true dacă nu e setat
       isAdmin: async (parent, args, context) => {
         try {
