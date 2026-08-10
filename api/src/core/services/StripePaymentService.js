@@ -104,7 +104,8 @@ class StripePaymentService {
    * @param {string} [params.productId] Stripe Product ID (optional, doar daca priceId nu e furnizat)
    * @param {string} [params.customerEmail]
    * @param {Object} [params.customerInfo] Optional pentru extensii (telefon etc.)
-   * @param {string} [params.successUrl] După succes sau anulare Stripe redirecționează aici (cancel_url = același URL).
+   * @param {string} [params.successUrl] După plată reușită
+   * @param {string} [params.cancelUrl] Dacă utilizatorul anulează Checkout (implicit STRIPE_CANCEL_URL / success cu checkout=cancel)
    * @returns {Promise<{checkoutUrl: string, sessionId: string, expiresAt: string}>}
    */
   async createCheckoutSession({
@@ -114,29 +115,34 @@ class StripePaymentService {
     productId,
     customerEmail,
     customerInfo,
-    successUrl
+    successUrl,
+    cancelUrl
   }) {
     if (!orderId) throw new Error('orderId este obligatoriu pentru Stripe Checkout');
 
     const checkoutMode = mode === 'payment' ? 'payment' : 'subscription';
     const fallbackReturn = this._frontendCheckoutReturnUrl;
-    const resolvedReturnUrl = successUrl || this.defaultSuccessUrl || fallbackReturn;
-    if (!resolvedReturnUrl) {
+    const resolvedSuccessUrl = successUrl || this.defaultSuccessUrl || fallbackReturn;
+    if (!resolvedSuccessUrl) {
       throw new Error(
         'Lipsește URL-ul de întoarcere după Stripe Checkout. Setează STRIPE_SUCCESS_URL '
-        + '(ex. http://localhost:3000/payment/stripe-result), sau FRONTEND_URL=http://localhost:3000 '
-        + '(opțional STRIPE_CHECKOUT_RETURN_PATH=/payment/stripe-result), sau trimite stripeSuccessUrl în startCheckout. '
-        + 'Același URL este folosit și pentru anulare (Stripe cere success_url și cancel_url).'
+        + '(ex. http://localhost:3000/profile?checkout=success), sau FRONTEND_URL=http://localhost:3000 '
+        + '(opțional STRIPE_CHECKOUT_RETURN_PATH=/payment/stripe-result), sau trimite stripeSuccessUrl în startCheckout.'
       );
     }
+
+    const resolvedCancelUrl =
+      cancelUrl
+      || process.env.STRIPE_CANCEL_URL
+      || this._toCheckoutCancelUrl(resolvedSuccessUrl);
 
     const resolvedPriceId = await this._resolvePriceId({ priceId, productId });
 
     const sessionParams = {
       mode: checkoutMode,
       line_items: [{ price: resolvedPriceId, quantity: 1 }],
-      success_url: resolvedReturnUrl,
-      cancel_url: resolvedReturnUrl,
+      success_url: resolvedSuccessUrl,
+      cancel_url: resolvedCancelUrl,
       metadata: {
         order_id: String(orderId),
         orderId: String(orderId)
@@ -476,6 +482,24 @@ class StripePaymentService {
     // invoice.* and customer.subscription.* handled in StripeWebhookService router
 
     return null;
+  }
+
+  /**
+   * Derive cancel URL from success URL: swap checkout=success → checkout=cancel,
+   * or append checkout=cancel when missing.
+   */
+  _toCheckoutCancelUrl(successUrl) {
+    try {
+      const url = new URL(successUrl);
+      if (url.searchParams.get('checkout') === 'success') {
+        url.searchParams.set('checkout', 'cancel');
+      } else if (!url.searchParams.has('checkout')) {
+        url.searchParams.set('checkout', 'cancel');
+      }
+      return url.toString();
+    } catch {
+      return successUrl;
+    }
   }
 
   /**
