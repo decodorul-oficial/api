@@ -3,12 +3,10 @@
 -- Unit fixtures + sample of 20 random stories with LEGAL_REF
 -- Run via: supabase db query --linked -f api/scripts/validate-legislative-links.sql
 --
--- Validation run 2026-07-24 (post migration 080):
---   A) normalize fixtures: 9/9 pass
---   B) sample 20 stories: 20/20 produce edges (external and/or internal);
---      2 internal edges in sample — both cite Legea 165/2013 → story about that law (OK)
---   C) globals: org_edges=0, text_title_match=0, LEGAL_REF dominant, self_links=0
---   D) get_related_stories smoke: OK (same columns)
+-- Validation run 2026-08-10 (post migration 093 / identity v5):
+--   A) normalize fixtures include multi-slash, MS issuer, din-year
+--   E) resolve true positives + false friends
+--   F) self-subject skip on 6447
 -- =====================================================
 
 -- A) Normalize fixtures (must all pass)
@@ -22,7 +20,11 @@ WITH fixtures AS (
     ('Art. 5 din Legea nr. 15/1990', 'lege', '15', '1990'),
     ('Anexa nr. 1 la HG nr. 828/2024', 'hg', '828', '2024'),
     ('Codul de procedură civilă', 'cod', 'de procedura civila', NULL),
-    ('Guvernul României', NULL, NULL, NULL)
+    ('Guvernul României', NULL, NULL, NULL),
+    ('Ordinul nr. 589/993/902/2026', 'ordin', '589/993/902', '2026'),
+    ('Ordinul MS nr. 589/2026', 'ordin', '589', '2026'),
+    ('Ordinul nr. 898/899 din 16 iulie 2026', 'ordin', '898/899', '2026'),
+    ('Decizia nr. 589/2026', 'decizie', '589', '2026')
   ) AS t(input, expect_type, expect_number, expect_year)
 ),
 results AS (
@@ -63,10 +65,61 @@ FROM (
     ('Art. 5 din Legea nr. 15/1990', 'lege', '15', '1990'),
     ('Anexa nr. 1 la HG nr. 828/2024', 'hg', '828', '2024'),
     ('Codul de procedură civilă', 'cod', 'de procedura civila', NULL),
-    ('Guvernul României', NULL, NULL, NULL)
+    ('Guvernul României', NULL, NULL, NULL),
+    ('Ordinul nr. 589/993/902/2026', 'ordin', '589/993/902', '2026'),
+    ('Ordinul MS nr. 589/2026', 'ordin', '589', '2026'),
+    ('Ordinul nr. 898/899 din 16 iulie 2026', 'ordin', '898/899', '2026'),
+    ('Decizia nr. 589/2026', 'decizie', '589', '2026')
   ) AS f(input, expect_type, expect_number, expect_year)
   CROSS JOIN LATERAL public.normalize_legislative_identifier(f.input) AS n
 ) s;
+
+-- E) Resolve quality: true positives + false friends
+SELECT
+  'E_resolve_ms_589' AS suite,
+  (SELECT document_id FROM public.resolve_legislative_identifier('Ordinul MS nr. 589/2026') LIMIT 1) AS got_id,
+  3532 AS expect_id,
+  (SELECT document_id FROM public.resolve_legislative_identifier('Ordinul MS nr. 589/2026') LIMIT 1) = 3532 AS passed;
+
+SELECT
+  'E_resolve_decizie_589' AS suite,
+  (SELECT document_id FROM public.resolve_legislative_identifier('Decizia nr. 589/2026') LIMIT 1) AS got_id,
+  5093 AS expect_id,
+  (SELECT document_id FROM public.resolve_legislative_identifier('Decizia nr. 589/2026') LIMIT 1) = 5093 AS passed;
+
+SELECT
+  'E_false_friend_compound_not_ms' AS suite,
+  (SELECT document_id FROM public.resolve_legislative_identifier('Ordinul nr. 589/993/902/2026') LIMIT 1) AS got_id,
+  (
+    SELECT document_id FROM public.resolve_legislative_identifier('Ordinul nr. 589/993/902/2026') LIMIT 1
+  ) IS DISTINCT FROM 3532
+  AND (
+    SELECT document_id FROM public.resolve_legislative_identifier('Ordinul nr. 589/993/902/2026') LIMIT 1
+  ) IS DISTINCT FROM 5093 AS passed;
+
+SELECT
+  'E_nr_dot_strip_decizie' AS suite,
+  (SELECT document_id FROM public.resolve_legislative_identifier('Decizia nr. 589/2026') LIMIT 1) IS NOT NULL AS passed;
+
+-- F) Self-subject: 6447 must not keep external self-ref for its own compound order
+SELECT
+  'F_self_subject_6447' AS suite,
+  COUNT(*) FILTER (
+    WHERE target_document_id IS NULL
+      AND (
+        metadata->>'external_identifier' ILIKE '%589/993/902/2026%'
+        OR metadata->'source_entity'->>'text' ILIKE '%589/993/902/2026%'
+      )
+  ) AS self_extern_rows,
+  COUNT(*) FILTER (
+    WHERE target_document_id IS NULL
+      AND (
+        metadata->>'external_identifier' ILIKE '%589/993/902/2026%'
+        OR metadata->'source_entity'->>'text' ILIKE '%589/993/902/2026%'
+      )
+  ) = 0 AS passed
+FROM legislative_connections
+WHERE source_document_id = 6447;
 
 -- C) Global metrics
 SELECT
@@ -78,7 +131,8 @@ SELECT
   COUNT(*) FILTER (WHERE metadata->>'match_method' = 'text_title_match') AS text_title_match,
   COUNT(*) FILTER (WHERE metadata->'source_entity'->>'label' = 'LEGAL_REF') AS legal_ref_edges,
   COUNT(*) FILTER (WHERE metadata->'source_entity'->>'label' = 'ORGANIZATION') AS org_edges,
-  COUNT(*) FILTER (WHERE source_document_id = target_document_id) AS self_links
+  COUNT(*) FILTER (WHERE source_document_id = target_document_id) AS self_links,
+  COUNT(*) FILTER (WHERE metadata->>'extraction_version' = '5.0') AS v5_edges
 FROM legislative_connections;
 
 -- Parseable rate on sample LEGAL_REF
