@@ -6,12 +6,18 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY
 );
 
-// Calculate next run time for trial_processing (every hour)
+// Hobby daily cron: next_run is +1 day (not +1 hour)
 function calculateNextRun() {
   const now = new Date();
-  const nextHour = new Date(now);
-  nextHour.setHours(now.getHours() + 1, 0, 0, 0);
-  return nextHour.toISOString();
+  const nextDay = new Date(now);
+  nextDay.setUTCDate(now.getUTCDate() + 1);
+  nextDay.setUTCHours(4, 0, 0, 0);
+  // If we already passed today's 04:00 UTC sync window and somehow run late,
+  // still land on tomorrow 04:00 UTC relative to "now + 1 day" floor above.
+  if (nextDay <= now) {
+    nextDay.setUTCDate(nextDay.getUTCDate() + 1);
+  }
+  return nextDay.toISOString();
 }
 
 export default async function handler(req, res) {

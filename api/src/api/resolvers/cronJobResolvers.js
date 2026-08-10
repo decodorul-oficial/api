@@ -275,23 +275,14 @@ export const cronJobResolvers = {
               try {
                 console.log(`Processing trial expiration for subscription ${subscription.id} (user: ${subscription.user_id})`);
                 
-                // 1. Cancel the trial subscription using RPC
-                const { data: cancelResult, error: cancelError } = await supabase.rpc('cancel_trial_subscription', {
-                  p_subscription_id: subscription.id
-                });
-
-                if (cancelError || !cancelResult || cancelResult.length === 0) {
-                  console.error(`Error canceling subscription ${subscription.id}:`, cancelError);
-                  continue;
-                }
-
-                // 2. Downgrade user profile using RPC
+                // Downgrade profile + cancel TRIALING subscription (fixed RPC)
                 const { data: profileResult, error: profileError } = await supabase.rpc('downgrade_user_from_trial', {
                   p_user_id: subscription.user_id
                 });
 
                 if (profileError || !profileResult || profileResult.length === 0) {
-                  console.error(`Error downgrading user profile for ${subscription.user_id}:`, profileError);
+                  console.error(`Error downgrading user from trial for ${subscription.user_id}:`, profileError);
+                  continue;
                 }
 
                 // 3. Log the trial expiration event using RPC

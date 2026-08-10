@@ -108,112 +108,159 @@ export async function recurringBillingHandler(req, res) {
   }
 }
 
+/**
+ * Daily Hobby cron: (1) remind trials ending in next 24h, (2) downgrade expired trials.
+ * Exported for unit tests.
+ */
+export async function processTrialSubscriptions({
+  supabaseClient = supabase,
+  userService,
+  billingNotificationService,
+  now = new Date(),
+} = {}) {
+  let users = userService;
+  if (!users) {
+    const { default: UserService } = await import('../../core/services/UserService.js');
+    users = new UserService(supabaseClient);
+  }
+
+  let billing = billingNotificationService;
+  if (!billing) {
+    const { default: BillingNotificationService } = await import(
+      '../../core/services/BillingNotificationService.js'
+    );
+    billing = new BillingNotificationService(supabaseClient);
+  }
+
+  const nowIso = now.toISOString();
+  const in24hIso = new Date(now.getTime() + 24 * 60 * 60 * 1000).toISOString();
+
+  let remindersSent = 0;
+  let expiredProcessed = 0;
+
+  // Phase 1: trials ending within the next 24 hours (not yet reminded)
+  const { data: remindingSoon, error: reminderError } = await supabaseClient
+    .from('subscriptions')
+    .select('id, user_id, tier_id, trial_start, trial_end, trial_reminder_sent_at')
+    .eq('status', 'TRIALING')
+    .gt('trial_end', nowIso)
+    .lte('trial_end', in24hIso)
+    .is('trial_reminder_sent_at', null);
+
+  if (reminderError) {
+    console.error('Error fetching trials needing reminder:', reminderError);
+  } else {
+    console.log(`Found ${remindingSoon?.length || 0} trials needing expiry reminder`);
+    for (const subscription of remindingSoon || []) {
+      try {
+        const sendResult = await billing.notifyTrialExpiringSoon({
+          userId: subscription.user_id,
+          trialEnd: subscription.trial_end,
+        });
+
+        // Mark sent when delivered or intentionally skipped (no email / Resend not configured)
+        // so Hobby daily cron does not retry forever. Leave unmarked on transient send failures.
+        if (sendResult?.sent || sendResult?.reason === 'no_email' || sendResult?.reason === 'not_configured') {
+          const { error: markError } = await supabaseClient
+            .from('subscriptions')
+            .update({
+              trial_reminder_sent_at: nowIso,
+              updated_at: nowIso,
+            })
+            .eq('id', subscription.id)
+            .eq('status', 'TRIALING');
+
+          if (markError) {
+            console.error(`Failed to mark reminder sent for ${subscription.id}:`, markError);
+          } else {
+            remindersSent += 1;
+          }
+        } else {
+          console.warn(
+            `Trial reminder not marked for ${subscription.id}:`,
+            sendResult?.reason || 'unknown'
+          );
+        }
+      } catch (err) {
+        console.error(`Error sending trial reminder for ${subscription.id}:`, err);
+      }
+    }
+  }
+
+  // Phase 2: expired trials → downgrade via UserService
+  const { data: expiredTrials, error: expiredError } = await supabaseClient
+    .from('subscriptions')
+    .select('id, user_id, tier_id, trial_start, trial_end')
+    .eq('status', 'TRIALING')
+    .lte('trial_end', nowIso);
+
+  if (expiredError) {
+    console.error('Error fetching expired trial subscriptions:', expiredError);
+    throw expiredError;
+  }
+
+  console.log(`Found ${expiredTrials?.length || 0} expired trial subscriptions to process`);
+
+  for (const subscription of expiredTrials || []) {
+    try {
+      console.log(
+        `Processing trial expiration for subscription ${subscription.id} (user: ${subscription.user_id})`
+      );
+
+      await users.downgradeFromTrial(subscription.user_id);
+
+      await supabaseClient.from('payment_logs').insert({
+        subscription_id: subscription.id,
+        event_type: 'SUBSCRIPTION_CANCELED',
+        status: 'SUCCEEDED',
+        raw_payload: {
+          subscription_id: subscription.id,
+          user_id: subscription.user_id,
+          tier_id: subscription.tier_id,
+          trial_start: subscription.trial_start,
+          trial_end: subscription.trial_end,
+          expired_at: nowIso,
+          action: 'trial_expired_downgrade',
+          reason: 'trial_period_expired',
+        },
+      });
+
+      expiredProcessed += 1;
+      console.log(`✅ Successfully processed trial expiration for subscription ${subscription.id}`);
+    } catch (subscriptionError) {
+      console.error(`Error processing trial subscription ${subscription.id}:`, subscriptionError);
+      try {
+        await supabaseClient.from('payment_logs').insert({
+          subscription_id: subscription.id,
+          event_type: 'WEBHOOK_FAILED',
+          status: 'FAILED',
+          error_message: subscriptionError.message,
+          raw_payload: {
+            subscription_id: subscription.id,
+            user_id: subscription.user_id,
+            error: subscriptionError.message,
+            processed_at: nowIso,
+            action: 'trial_expiration_processing_failed',
+          },
+        });
+      } catch (logError) {
+        console.error(`Failed to log error for subscription ${subscription.id}:`, logError);
+      }
+    }
+  }
+
+  console.log(
+    `✅ Trial processing done — reminders=${remindersSent}, expired=${expiredProcessed}`
+  );
+  return { remindersSent, expiredProcessed };
+}
+
 // Cron job handler for trial processing
 export async function trialProcessingHandler(req, res) {
   try {
     await runJob('trial_processing', async () => {
-      console.log('⏰ Processing trial period expirations...');
-      
-      // Get trial subscriptions that are expiring from payments schema
-      const { data: trialSubscriptions, error } = await supabase
-        .from('payments.subscriptions')
-        .select(`
-          *,
-          subscription_tiers:payments.subscription_tiers!inner(*)
-        `)
-        .eq('status', 'TRIALING')
-        .lte('trial_end', new Date().toISOString());
-
-      if (error) {
-        console.error('Error fetching trial subscriptions:', error);
-        return;
-      }
-
-      console.log(`Found ${trialSubscriptions?.length || 0} trial subscriptions to process`);
-
-      // Process each expired trial subscription
-      for (const subscription of trialSubscriptions || []) {
-        try {
-          console.log(`Processing trial expiration for subscription ${subscription.id} (user: ${subscription.user_id})`);
-          
-          // 1. Cancel the trial subscription in payments.subscriptions
-          const { error: cancelError } = await supabase
-            .from('payments.subscriptions')
-            .update({
-              status: 'CANCELED',
-              canceled_at: new Date().toISOString(),
-              updated_at: new Date().toISOString()
-            })
-            .eq('id', subscription.id);
-
-          if (cancelError) {
-            console.error(`Error canceling subscription ${subscription.id}:`, cancelError);
-            continue;
-          }
-
-          // 2. Downgrade user profile to free tier (trial data is now in subscriptions table)
-          const { error: profileError } = await supabase
-            .from('profiles')
-            .update({
-              subscription_tier: 'free',
-              updated_at: new Date().toISOString()
-            })
-            .eq('id', subscription.user_id);
-
-          if (profileError) {
-            console.error(`Error downgrading user profile for ${subscription.user_id}:`, profileError);
-            // Continue processing other subscriptions even if this one fails
-          }
-
-          // 3. Log the trial expiration event
-          await supabase
-            .from('payments.payment_logs')
-            .insert({
-              subscription_id: subscription.id,
-              event_type: 'SUBSCRIPTION_CANCELED',
-              status: 'SUCCEEDED',
-              raw_payload: {
-                subscription_id: subscription.id,
-                user_id: subscription.user_id,
-                tier_id: subscription.tier_id,
-                trial_start: subscription.trial_start,
-                trial_end: subscription.trial_end,
-                expired_at: new Date().toISOString(),
-                action: 'trial_expired_downgrade',
-                reason: 'trial_period_expired'
-              }
-            });
-
-          console.log(`✅ Successfully processed trial expiration for subscription ${subscription.id}`);
-
-        } catch (subscriptionError) {
-          console.error(`Error processing trial subscription ${subscription.id}:`, subscriptionError);
-          
-          // Log the error for this specific subscription
-          try {
-            await supabase
-              .from('payments.payment_logs')
-              .insert({
-                subscription_id: subscription.id,
-                event_type: 'WEBHOOK_FAILED',
-                status: 'FAILED',
-                error_message: subscriptionError.message,
-                raw_payload: {
-                  subscription_id: subscription.id,
-                  user_id: subscription.user_id,
-                  error: subscriptionError.message,
-                  stack: subscriptionError.stack,
-                  processed_at: new Date().toISOString(),
-                  action: 'trial_expiration_processing_failed'
-                }
-              });
-          } catch (logError) {
-            console.error(`Failed to log error for subscription ${subscription.id}:`, logError);
-          }
-        }
-      }
-
-      console.log(`✅ Completed processing ${trialSubscriptions?.length || 0} trial subscriptions`);
+      console.log('⏰ Processing trial reminders + expirations...');
+      await processTrialSubscriptions();
     });
     res.status(200).json({ success: true });
   } catch (error) {

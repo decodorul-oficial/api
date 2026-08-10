@@ -86,6 +86,43 @@ class BillingNotificationService {
       text: `Abonament anulat (${when}). Profil: ${this.frontendUrl}/profile`
     });
   }
+
+  /**
+   * Reminder cu ~1 zi înainte de expirarea trial-ului Pro.
+   * CTA către pagina de prețuri; după expirare contul rămâne, fără acces Pro.
+   */
+  async notifyTrialExpiringSoon({ userId, trialEnd }) {
+    const email = await this._getUserEmail(userId);
+    const endLabel = trialEnd
+      ? new Date(trialEnd).toLocaleDateString('ro-RO', {
+          year: 'numeric',
+          month: 'long',
+          day: 'numeric',
+        })
+      : 'mâine';
+    const pricingUrl = `${this.frontendUrl}/preturi`;
+
+    return this._safeSend({
+      to: email,
+      subject: 'Trial-ul Pro expiră mâine — Decodorul Oficial',
+      html: `
+        <p>Salut,</p>
+        <p>Trial-ul tău <strong>Pro</strong> pe Decodorul Oficial expiră pe <strong>${endLabel}</strong>.</p>
+        <p>După expirare, contul rămâne activ, dar vei pierde accesul la funcțiile Pro
+          (favorite, export, context legislativ, feed personalizat etc.).</p>
+        <p style="margin:24px 0;">
+          <a href="${pricingUrl}"
+             style="display:inline-block;padding:12px 20px;background:#0d9488;color:#fff;text-decoration:none;border-radius:8px;font-weight:600;">
+            Activează abonamentul Pro
+          </a>
+        </p>
+        <p>Poți alege planul lunar sau anual din <a href="${pricingUrl}">pagina de prețuri</a>.</p>
+      `,
+      text:
+        `Trial-ul Pro expiră pe ${endLabel}. Contul rămâne, dar fără funcții Pro. `
+        + `Activează plata: ${pricingUrl}`,
+    });
+  }
 }
 
 export default BillingNotificationService;
