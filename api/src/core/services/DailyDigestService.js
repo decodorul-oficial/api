@@ -57,11 +57,117 @@ export class DailyDigestService {
   }
 
   _manageAlertsUrl() {
-    return `${this.baseUrl.replace(/\/$/, '')}/favorite?tab=alerte`;
+    return `${this.baseUrl.replace(/\/$/, '')}/alerte`;
   }
 
   _disableAllAlertsUrl() {
-    return `${this.baseUrl.replace(/\/$/, '')}/favorite?tab=alerte&action=disable-all`;
+    return `${this.baseUrl.replace(/\/$/, '')}/alerte?action=disable-all`;
+  }
+
+  /**
+   * Send a demo digest email so the user can verify delivery.
+   * Rate-limited: max 1 per 10 minutes per user.
+   */
+  async sendTestAlertEmail(userId) {
+    const { data: authUser, error: authError } = await this.supabase.auth.admin.getUserById(userId);
+    if (authError || !authUser?.user?.email) {
+      return { success: false, error: 'Nu am găsit adresa de email a contului.' };
+    }
+
+    const to = authUser.user.email;
+    const userName =
+      authUser.user.user_metadata?.full_name
+      || authUser.user.user_metadata?.name
+      || to.split('@')[0];
+
+    const tenMinAgo = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+    const { data: recent } = await this.supabase
+      .from('email_digest_logs')
+      .select('id, sent_at')
+      .eq('user_id', userId)
+      .eq('slot', 'test')
+      .gte('sent_at', tenMinAgo)
+      .limit(1);
+
+    if (recent?.length) {
+      return {
+        success: false,
+        error: 'Poți trimite un email de test o dată la 10 minute. Încearcă din nou puțin mai târziu.',
+        email: to,
+      };
+    }
+
+    const currentDate = this._formatRoDate(new Date());
+    const demoArticles = [
+      {
+        id: 'demo-1',
+        title: 'Exemplu: modificare la un act pe care îl urmărești',
+        excerpt: 'Acesta este un email de test. Când apar noutăți reale, le vei primi aici, în același format.',
+        watchLabel: 'Act urmărit (exemplu)',
+        link: `${this.baseUrl.replace(/\/$/, '')}/stiri`,
+      },
+    ];
+
+    const manageUrl = this._manageAlertsUrl();
+    const disableUrl = this._disableAllAlertsUrl();
+
+    const html = buildDigestHtml({
+      userName,
+      currentDate,
+      primaryArticles: demoArticles,
+      categoryArticles: [],
+      referenceArticles: [],
+      similarArticles: [],
+      manageAlertsUrl: manageUrl,
+      disableAllAlertsUrl: disableUrl,
+      baseUrl: this.baseUrl,
+    });
+
+    const text = buildDigestText({
+      userName,
+      currentDate,
+      primaryArticles: demoArticles,
+      categoryArticles: [],
+      manageAlertsUrl: manageUrl,
+      disableAllAlertsUrl: disableUrl,
+      baseUrl: this.baseUrl,
+    });
+
+    const subject = `[Test] Rezumat alerte — ${currentDate}`;
+    const validation = validateDigestEmailPayload({
+      to,
+      subject,
+      html,
+      articles: demoArticles,
+    });
+
+    if (!validation.ok) {
+      return { success: false, error: `invalid_email_payload:${validation.reason}`, email: to };
+    }
+
+    try {
+      const result = await this.resendService.sendEmail({ to, subject, html, text });
+      const today = this._bucharestDateParts().day;
+      await this.supabase.from('email_digest_logs').insert({
+        user_id: userId,
+        digest_date: today,
+        slot: 'test',
+        articles_sent_count: 1,
+        primary_count: 1,
+        reference_count: 0,
+        status: 'SENT',
+        resend_id: result.id,
+        sent_at: new Date().toISOString(),
+      });
+
+      return { success: true, email: to, resendId: result.id };
+    } catch (error) {
+      return {
+        success: false,
+        error: error.message || 'Trimiterea a eșuat',
+        email: to,
+      };
+    }
   }
 
   async _acquireSlotLock(slot, day) {

@@ -85,7 +85,7 @@ export class InstantWatchAlertService {
         relationshipType: hit.relationship_type,
         articleTitle: hit.stiri_title,
         articleUrl,
-        manageAlertsUrl: `${this.baseUrl.replace(/\/$/, '')}/favorite?tab=alerte`,
+        manageAlertsUrl: `${this.baseUrl.replace(/\/$/, '')}/alerte`,
         baseUrl: this.baseUrl,
       });
 
@@ -94,7 +94,7 @@ export class InstantWatchAlertService {
         relationshipType: hit.relationship_type,
         articleTitle: hit.stiri_title,
         articleUrl,
-        manageAlertsUrl: `${this.baseUrl.replace(/\/$/, '')}/favorite?tab=alerte`,
+        manageAlertsUrl: `${this.baseUrl.replace(/\/$/, '')}/alerte`,
       });
 
       try {

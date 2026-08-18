@@ -104,8 +104,8 @@ export function buildDigestHtml({
     `
     : '';
 
-  const manageUrl = manageAlertsUrl || `${baseUrl.replace(/\/$/, '')}/favorite?tab=alerte`;
-  const disableUrl = disableAllAlertsUrl || `${baseUrl.replace(/\/$/, '')}/favorite?tab=alerte&action=disable-all`;
+  const manageUrl = manageAlertsUrl || `${baseUrl.replace(/\/$/, '')}/alerte`;
+  const disableUrl = disableAllAlertsUrl || `${baseUrl.replace(/\/$/, '')}/alerte?action=disable-all`;
   const count = primaryArticles.length + categoryArticles.length;
 
   return `<!DOCTYPE html>
@@ -154,7 +154,7 @@ export function buildDigestHtml({
             <a href="${escapeHtml(baseUrl)}" style="color:${BRAND_ACCENT};">Acasă</a> ·
             <a href="${escapeHtml(baseUrl)}/stiri" style="color:${BRAND_ACCENT};">Știri</a> ·
             <a href="${escapeHtml(baseUrl)}/preturi" style="color:${BRAND_ACCENT};">Prețuri</a> ·
-            <a href="${escapeHtml(manageUrl)}" style="color:${BRAND_ACCENT};">Favorite &amp; Alerte</a>
+            <a href="${escapeHtml(manageUrl)}" style="color:${BRAND_ACCENT};">Alerte</a>
           </p>
           <p style="margin: 0 0 8px;">© ${new Date().getFullYear()} Decodorul Oficial</p>
           <p style="margin: 0 0 8px;">Primești acest email pentru că ai alerte active pe Decodorul Oficial.</p>
@@ -178,8 +178,8 @@ export function buildDigestText({
   disableAllAlertsUrl,
   baseUrl = DEFAULT_BASE_URL,
 }) {
-  const manageUrl = manageAlertsUrl || `${baseUrl.replace(/\/$/, '')}/favorite?tab=alerte`;
-  const disableUrl = disableAllAlertsUrl || `${baseUrl.replace(/\/$/, '')}/favorite?tab=alerte&action=disable-all`;
+  const manageUrl = manageAlertsUrl || `${baseUrl.replace(/\/$/, '')}/alerte`;
+  const disableUrl = disableAllAlertsUrl || `${baseUrl.replace(/\/$/, '')}/alerte?action=disable-all`;
 
   const lines = [
     `Decodorul Oficial — Digest alerte (${currentDate})`,
@@ -252,7 +252,11 @@ export function validateDigestEmailPayload({ to, subject, html, articles = [] })
     return { ok: false, reason: 'missing_stiri_links' };
   }
 
-  if (!htmlStr.includes('Gestionează alertele') && !htmlStr.includes('favorite?tab=alerte')) {
+  if (
+    !htmlStr.includes('Gestionează alertele')
+    && !htmlStr.includes('/alerte')
+    && !htmlStr.includes('favorite?tab=alerte')
+  ) {
     return { ok: false, reason: 'missing_manage_cta' };
   }
 
@@ -290,7 +294,7 @@ export function buildInstantAlertHtml({
   manageAlertsUrl,
   baseUrl = DEFAULT_BASE_URL,
 }) {
-  const manageUrl = manageAlertsUrl || `${baseUrl.replace(/\/$/, '')}/favorite?tab=alerte`;
+  const manageUrl = manageAlertsUrl || `${baseUrl.replace(/\/$/, '')}/alerte`;
 
   return `<!DOCTYPE html>
 <html lang="ro">

@@ -51,6 +51,11 @@ export function createLegislationWatchResolvers({ legislationWatchService, daily
         return legislationWatchService.getLimitInfo(context.user.id);
       },
 
+      getAlertStatus: async (_parent, _args, context) => {
+        await requireAuth(context);
+        return legislationWatchService.getAlertStatus(context.user.id);
+      },
+
       getEmailOpsSummary: async (_parent, _args, context) => {
         await requireAdmin(context, userService);
         return dailyDigestService.getEmailOpsSummary();
@@ -110,6 +115,11 @@ export function createLegislationWatchResolvers({ legislationWatchService, daily
       disableAllEmailAlerts: async (_parent, _args, context) => {
         await requireAuth(context);
         return legislationWatchService.disableAllEmailAlerts(context.user.id);
+      },
+
+      sendTestAlertEmail: async (_parent, _args, context) => {
+        await requireAuth(context);
+        return dailyDigestService.sendTestAlertEmail(context.user.id);
       },
     },
   };

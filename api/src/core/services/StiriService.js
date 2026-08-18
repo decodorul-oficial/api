@@ -30,6 +30,34 @@ const updateStireSchema = z.object({
   content: z.record(z.any()).optional()
 });
 
+const LIST_PREVIEW = { preview: true };
+const PREVIEW_SUMMARY_MAX = 900;
+
+function toPlainSummary(value, maxLen = PREVIEW_SUMMARY_MAX) {
+  if (typeof value !== 'string' || !value) return '';
+  const text = value.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+  return text.length > maxLen ? text.slice(0, maxLen) : text;
+}
+
+function buildListContentPreview(content) {
+  if (!content || typeof content !== 'object') return {};
+  const summarySource = content.summary || content.text || content.body || '';
+  return {
+    summary: toPlainSummary(summarySource),
+    act: content.act || content.actName,
+    actName: content.actName,
+    partea: content.partea,
+    monitorulOficial: content.monitorulOficial,
+    moNumberDate: content.moNumberDate,
+    sourceUrl: content.sourceUrl,
+    url: content.url,
+    lucide_icon: content.lucide_icon,
+    lucideIcon: content.lucideIcon,
+    category: content.category,
+    keywords: content.keywords,
+  };
+}
+
 /**
  * Serviciu pentru gestionarea știrilor
  */
@@ -85,7 +113,7 @@ export class StiriService {
       });
 
       return {
-        stiri: result.stiri.map(stire => this.transformStireForGraphQL(stire)),
+        stiri: result.stiri.map(stire => this.transformStireForGraphQL(stire, LIST_PREVIEW)),
         pagination: {
           totalCount: result.totalCount,
           hasNextPage: result.hasNextPage,
@@ -131,7 +159,7 @@ export class StiriService {
       });
 
       return {
-        stiri: result.stiri.map(stire => this.transformStireForGraphQL(stire)),
+        stiri: result.stiri.map(stire => this.transformStireForGraphQL(stire, LIST_PREVIEW)),
         pagination: {
           totalCount: result.totalCount,
           hasNextPage: result.hasNextPage,
@@ -179,7 +207,7 @@ export class StiriService {
 
       // Transformă datele pentru GraphQL
       return {
-        stiri: result.stiri.map(stire => this.transformStireForGraphQL(stire)),
+        stiri: result.stiri.map(stire => this.transformStireForGraphQL(stire, LIST_PREVIEW)),
         pagination: {
           totalCount: result.totalCount,
           hasNextPage: result.hasNextPage,
@@ -287,7 +315,7 @@ export class StiriService {
       const normalizedLimit = typeof limit === 'number' && limit > 0 ? limit : validationConfig.defaultStiriLimit;
       const items = await this.stiriRepository.getMostReadStiri({ period, limit: normalizedLimit });
       return {
-        stiri: items.map((stire) => this.transformStireForGraphQL(stire))
+        stiri: items.map((stire) => this.transformStireForGraphQL(stire, LIST_PREVIEW))
       };
     } catch (error) {
       if (error instanceof GraphQLError) {
@@ -354,7 +382,7 @@ export class StiriService {
       });
 
       return {
-        stiri: result.stiri.map(stire => this.transformStireForGraphQL(stire)),
+        stiri: result.stiri.map(stire => this.transformStireForGraphQL(stire, LIST_PREVIEW)),
         pagination: {
           totalCount: result.totalCount,
           hasNextPage: result.hasNextPage,
@@ -450,7 +478,7 @@ export class StiriService {
       });
 
       return {
-        stiri: result.stiri.map(stire => this.transformStireForGraphQL(stire)),
+        stiri: result.stiri.map(stire => this.transformStireForGraphQL(stire, LIST_PREVIEW)),
         pagination: {
           totalCount: result.totalCount,
           hasNextPage: result.hasNextPage,
@@ -644,15 +672,10 @@ export class StiriService {
             return null; // Skip dacă știrea nu mai există
           }
           
-          // Exclude topics, entities și content.body din răspuns
           const { topics, entities, ...storyWithoutExcluded } = fullStory;
-          const contentWithoutBody = fullStory.content ? 
-            { ...fullStory.content, body: undefined } : 
-            fullStory.content;
-          
           return {
             ...storyWithoutExcluded,
-            content: contentWithoutBody,
+            content: buildListContentPreview(fullStory.content),
             relevance_score: relatedStory.relevance_score,
             relevance_reasons: relatedStory.relevance_reasons,
             category: relatedStory.category
@@ -675,9 +698,10 @@ export class StiriService {
   /**
    * Transformă o știre din formatul bazei de date în formatul GraphQL
    * @param {Object} stire - Știrea din baza de date
+   * @param {{ preview?: boolean }} [options] - preview=true omite body/tables/topics/entities
    * @returns {Object} Știrea în format GraphQL
    */
-  transformStireForGraphQL(stire) {
+  transformStireForGraphQL(stire, { preview = false } = {}) {
     const content = stire.content && typeof stire.content === 'object' ? stire.content : {};
     const category = typeof content.category === 'string'
       ? content.category
@@ -689,9 +713,9 @@ export class StiriService {
       id: stire.id,
       title: stire.title,
       publicationDate: stire.publication_date,
-      content: stire.content,
-      topics: stire.topics,
-      entities: stire.entities,
+      content: preview ? buildListContentPreview(content) : stire.content,
+      topics: preview ? undefined : stire.topics,
+      entities: preview ? undefined : stire.entities,
       createdAt: stire.created_at,
       updatedAt: stire.updated_at,
       filename: stire.filename,

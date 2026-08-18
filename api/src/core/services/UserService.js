@@ -617,7 +617,7 @@ export class UserService {
       const result = await this.userRepository.getPersonalizedStiri(userId, options);
 
       return {
-        stiri: result.stiri.map(stire => this.transformStireForGraphQL(stire)),
+        stiri: result.stiri.map(stire => this.transformStireForGraphQL(stire, { preview: true })),
         pagination: {
           totalCount: result.totalCount,
           hasNextPage: result.hasNextPage,
@@ -639,16 +639,40 @@ export class UserService {
   /**
    * Transformă o știre din formatul bazei de date în formatul GraphQL
    * @param {Object} stire - Știrea din baza de date
+   * @param {{ preview?: boolean }} [options]
    * @returns {Object} Știrea transformată pentru GraphQL
    */
-  transformStireForGraphQL(stire) {
+  transformStireForGraphQL(stire, { preview = false } = {}) {
+    const content = stire.content && typeof stire.content === 'object' ? stire.content : {};
+    let previewContent = content;
+    if (preview) {
+      const summarySource = content.summary || content.text || content.body || '';
+      const summary = typeof summarySource === 'string'
+        ? summarySource.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 900)
+        : '';
+      previewContent = {
+        summary,
+        act: content.act || content.actName,
+        actName: content.actName,
+        partea: content.partea,
+        monitorulOficial: content.monitorulOficial,
+        moNumberDate: content.moNumberDate,
+        sourceUrl: content.sourceUrl,
+        url: content.url,
+        lucide_icon: content.lucide_icon,
+        lucideIcon: content.lucideIcon,
+        category: content.category,
+        keywords: content.keywords,
+      };
+    }
+
     return {
       id: stire.id.toString(),
       title: stire.title,
       publicationDate: stire.publication_date,
-      content: stire.content,
-      topics: stire.topics || [],
-      entities: stire.entities || [],
+      content: previewContent,
+      topics: preview ? undefined : (stire.topics || []),
+      entities: preview ? undefined : (stire.entities || []),
       createdAt: stire.created_at,
       updatedAt: stire.updated_at,
       filename: stire.filename,

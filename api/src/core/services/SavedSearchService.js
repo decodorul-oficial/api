@@ -68,6 +68,7 @@ export class SavedSearchService {
         searchParams: savedSearch.search_params,
         isFavorite: savedSearch.is_favorite,
         emailNotificationsEnabled: savedSearch.email_notifications_enabled,
+        sourcePackId: savedSearch.source_pack_id ?? null,
         createdAt: savedSearch.created_at,
         updatedAt: savedSearch.updated_at
       };
@@ -89,24 +90,11 @@ export class SavedSearchService {
    */
   async getSavedSearches(userId, options = {}) {
     try {
-      // Verifică abonamentul
-      const hasSubscription = await this.hasActiveSubscription(userId);
-      if (!hasSubscription) {
-        throw new GraphQLError('Această funcționalitate necesită un abonament activ', {
-          extensions: { 
-            code: 'SUBSCRIPTION_REQUIRED',
-            message: 'Doar utilizatorii cu abonament Pro sau Enterprise pot accesa căutările salvate'
-          }
-        });
-      }
-
-      // Validează opțiunile de paginare
+      // Listing allowed for any authenticated user (config UX on /alerte)
       const validatedOptions = validateInput(savedSearchPaginationSchema, options);
 
-      // Obține căutările salvate
       const result = await this.savedSearchRepository.getSavedSearches(userId, validatedOptions);
 
-      // Formatează rezultatul
       return {
         savedSearches: result.savedSearches.map(search => ({
           id: search.id,
@@ -115,6 +103,7 @@ export class SavedSearchService {
           searchParams: search.search_params,
           isFavorite: search.is_favorite,
           emailNotificationsEnabled: search.email_notifications_enabled,
+          sourcePackId: search.source_pack_id ?? null,
           createdAt: search.created_at,
           updatedAt: search.updated_at
         })),
@@ -168,6 +157,7 @@ export class SavedSearchService {
         searchParams: search.search_params,
         isFavorite: search.is_favorite,
         emailNotificationsEnabled: search.email_notifications_enabled,
+        sourcePackId: search.source_pack_id ?? null,
         createdAt: search.created_at,
         updatedAt: search.updated_at
       };
@@ -214,6 +204,7 @@ export class SavedSearchService {
         searchParams: updatedSearch.search_params,
         isFavorite: updatedSearch.is_favorite,
         emailNotificationsEnabled: updatedSearch.email_notifications_enabled,
+        sourcePackId: updatedSearch.source_pack_id ?? null,
         createdAt: updatedSearch.created_at,
         updatedAt: updatedSearch.updated_at
       };
@@ -287,6 +278,7 @@ export class SavedSearchService {
         searchParams: updatedSearch.search_params,
         isFavorite: updatedSearch.is_favorite,
         emailNotificationsEnabled: updatedSearch.email_notifications_enabled,
+        sourcePackId: updatedSearch.source_pack_id ?? null,
         createdAt: updatedSearch.created_at,
         updatedAt: updatedSearch.updated_at
       };
@@ -309,17 +301,7 @@ export class SavedSearchService {
    */
   async toggleEmailNotifications(userId, searchId, enabled) {
     try {
-      // Verifică abonamentul
-      const hasSubscription = await this.hasActiveSubscription(userId);
-      if (!hasSubscription) {
-        throw new GraphQLError('Această funcționalitate necesită un abonament activ', {
-          extensions: { 
-            code: 'SUBSCRIPTION_REQUIRED',
-            message: 'Doar utilizatorii cu abonament Pro sau Enterprise pot gestiona notificările email'
-          }
-        });
-      }
-
+      // Config allowed without ACTIVE paid sub; delivery remains gated server-side.
       // Dacă se încearcă activarea, verifică limita
       if (enabled) {
         const canEnable = await this.canEnableEmailNotifications(userId);
@@ -344,6 +326,7 @@ export class SavedSearchService {
         searchParams: updatedSearch.search_params,
         isFavorite: updatedSearch.is_favorite,
         emailNotificationsEnabled: updatedSearch.email_notifications_enabled,
+        sourcePackId: updatedSearch.source_pack_id ?? null,
         createdAt: updatedSearch.created_at,
         updatedAt: updatedSearch.updated_at
       };

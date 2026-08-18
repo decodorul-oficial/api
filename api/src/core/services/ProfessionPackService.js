@@ -48,7 +48,17 @@ export class ProfessionPackService {
     return (data || []).map(toGraphQLPack);
   }
 
-  async applyProfessionPack(userId, packId) {
+  /**
+   * @param {string} userId
+   * @param {string} packId
+   * @param {{
+   *   keywords?: string[],
+   *   anchors?: string[],
+   *   includeCategories?: boolean,
+   *   deliveryMode?: 'off' | 'digest' | 'instant',
+   * }} [selection]
+   */
+  async applyProfessionPack(userId, packId, selection = {}) {
     const { data: pack, error: packError } = await this.supabase
       .from('profession_packs')
       .select('*')
@@ -68,22 +78,25 @@ export class ProfessionPackService {
       .eq('id', userId)
       .maybeSingle();
 
-    const mergedCategories = mergeUniqueCategories(
-      current?.preferred_categories,
-      pack.categories
-    );
+    const includeCategories = selection.includeCategories !== false;
+    const mergedCategories = includeCategories
+      ? mergeUniqueCategories(current?.preferred_categories, pack.categories)
+      : (current?.preferred_categories || []);
 
-    const paid = await this.legislationWatchService.hasPaidSubscription(userId);
+    const deliveryMode = selection.deliveryMode || 'digest';
+    const emailOn = deliveryMode === 'digest' || deliveryMode === 'instant';
+    const instantOn = deliveryMode === 'instant';
 
-    // Opt-out: pachetul pornește digestele pe email + domenii; userul oprește ce nu vrea.
+    const canEmail = await this.supabase.rpc('check_watch_email_limit', { p_user_id: userId });
+    const emailAllowed = canEmail.data === true;
+
     const prevSettings = current?.notification_settings || {};
-    const notificationSettings = paid
-      ? {
-          ...prevSettings,
-          digest_email_enabled: true,
-          category_email_enabled: true,
-        }
-      : prevSettings;
+    const notificationSettings = {
+      ...prevSettings,
+      digest_email_enabled: emailOn ? true : (prevSettings.digest_email_enabled ?? true),
+      category_email_enabled: includeCategories && emailOn,
+      ...(instantOn ? { instant_master_enabled: true } : {}),
+    };
 
     const { error: prefError } = await this.supabase
       .from('user_preferences')
@@ -108,50 +121,68 @@ export class ProfessionPackService {
       watchesCreated: 0,
       skippedSearches: [],
       skippedWatches: [],
-      emailEnabledByDefault: paid,
-      hubUrl: '/favorite?tab=alerte',
+      emailEnabledByDefault: emailOn && emailAllowed,
+      hubUrl: '/alerte',
     };
 
-    if (paid) {
-      const keywords = (pack.keywords || []).slice(0, 2);
-      for (const keyword of keywords) {
-        try {
-          await this.savedSearchRepository.createSavedSearch({
-            user_id: userId,
-            name: `${pack.name_ro}: ${keyword}`,
-            description: `Căutare din pachetul ${pack.name_ro}`,
-            search_params: { keywords: keyword },
-            is_favorite: false,
-            email_notifications_enabled: true,
-          });
-          result.searchesCreated += 1;
-        } catch (error) {
-          result.skippedSearches.push({ keyword, reason: error.message });
-        }
+    const selectedKeywords = Array.isArray(selection.keywords)
+      ? selection.keywords
+      : (pack.keywords || []).slice(0, 2);
+
+    for (const keyword of selectedKeywords) {
+      if (!keyword) continue;
+      try {
+        await this.savedSearchRepository.createSavedSearch({
+          user_id: userId,
+          name: `${pack.name_ro}: ${keyword}`,
+          description: `Căutare din pachetul ${pack.name_ro}`,
+          search_params: { keywords: keyword },
+          is_favorite: false,
+          email_notifications_enabled: emailOn && emailAllowed,
+          source_pack_id: pack.id,
+        });
+        result.searchesCreated += 1;
+      } catch (error) {
+        result.skippedSearches.push({ keyword, reason: error.message });
       }
+    }
 
-      for (const identifierText of pack.anchor_identifiers || []) {
-        try {
-          const canAdd = await this.supabase.rpc('check_legislation_watch_limit', { p_user_id: userId });
-          if (canAdd.data !== true) {
-            result.skippedWatches.push({ identifierText, reason: 'watch_limit' });
-            break;
-          }
+    const selectedAnchors = Array.isArray(selection.anchors)
+      ? selection.anchors
+      : (pack.anchor_identifiers || []);
 
-          await this.legislationWatchService.add(userId, {
-            label: identifierText,
-            targetType: 'NORMALIZED_REF',
-            identifierText,
-            alertIntensity: 'IMPORTANT',
-            emailEnabled: true,
-          });
-          result.watchesCreated += 1;
-        } catch (error) {
-          result.skippedWatches.push({
-            identifierText,
-            reason: error instanceof GraphQLError ? error.message : error.message,
-          });
+    for (const identifierText of selectedAnchors) {
+      if (!identifierText) continue;
+      try {
+        const canAdd = await this.supabase.rpc('check_legislation_watch_limit', { p_user_id: userId });
+        if (canAdd.data !== true) {
+          result.skippedWatches.push({ identifierText, reason: 'watch_limit' });
+          break;
         }
+
+        const watch = await this.legislationWatchService.add(userId, {
+          label: identifierText,
+          targetType: 'NORMALIZED_REF',
+          identifierText,
+          alertIntensity: 'IMPORTANT',
+          emailEnabled: emailOn && emailAllowed,
+          sourcePackId: pack.id,
+        });
+
+        if (instantOn && watch?.id) {
+          try {
+            await this.legislationWatchService.toggleInstant(userId, watch.id, true);
+          } catch {
+            /* optional — ignore if instant cannot be enabled */
+          }
+        }
+
+        result.watchesCreated += 1;
+      } catch (error) {
+        result.skippedWatches.push({
+          identifierText,
+          reason: error instanceof GraphQLError ? error.message : error.message,
+        });
       }
     }
 

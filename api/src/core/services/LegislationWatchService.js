@@ -46,6 +46,7 @@ function toGraphQLWatch(row) {
     emailEnabled: row.emailEnabled ?? row.email_enabled ?? false,
     instantEnabled: row.instantEnabled ?? row.instant_enabled ?? false,
     minConfidence: row.minConfidence ?? row.min_confidence ?? 0.55,
+    sourcePackId: row.sourcePackId ?? row.source_pack_id ?? null,
     createdAt: row.createdAt ?? row.created_at,
     updatedAt: row.updatedAt ?? row.updated_at,
   };
@@ -221,7 +222,6 @@ export class LegislationWatchService {
     const canAdd = await this.supabase.rpc('check_legislation_watch_limit', { p_user_id: userId });
     this._requireLimit(canAdd.data === true, 'Ai atins limita de acte urmărite pentru abonamentul tău');
 
-    const paid = await this.hasPaidSubscription(userId);
     const intensityDb = INTENSITY_TO_DB[input.alertIntensity] || 'important';
 
     let normalizedIdentifier = {};
@@ -274,16 +274,12 @@ export class LegislationWatchService {
     }
 
     let emailEnabled = input.emailEnabled ?? false;
-    if (!paid) {
-      emailEnabled = false;
-    } else if (input.emailEnabled === undefined) {
+    const canEmailLimit = await this.supabase.rpc('check_watch_email_limit', { p_user_id: userId });
+    if (input.emailEnabled === undefined) {
       const masterOn = await this._getMasterDigestEnabled(userId);
-      emailEnabled = masterOn;
-    }
-
-    if (emailEnabled) {
-      const canEmail = await this.supabase.rpc('check_watch_email_limit', { p_user_id: userId });
-      this._requireLimit(canEmail.data === true, 'Ai atins limita de alerte email pentru acte urmărite');
+      emailEnabled = masterOn && canEmailLimit.data === true;
+    } else if (emailEnabled && canEmailLimit.data !== true) {
+      this._requireLimit(false, 'Ai atins limita de alerte email pentru acte urmărite');
     }
 
     const row = await this.repository.create({
@@ -299,6 +295,7 @@ export class LegislationWatchService {
       email_enabled: emailEnabled,
       instant_enabled: false,
       min_confidence: 0.55,
+      source_pack_id: input.sourcePackId || null,
     });
 
     return toGraphQLWatch(row);
@@ -326,9 +323,6 @@ export class LegislationWatchService {
 
   async toggleEmail(userId, watchId, enabled) {
     if (enabled) {
-      const paid = await this.hasPaidSubscription(userId);
-      if (!paid) this._requirePaid();
-
       const canEmail = await this.supabase.rpc('check_watch_email_limit', { p_user_id: userId });
       this._requireLimit(canEmail.data === true, 'Ai atins limita de alerte email pentru acte urmărite');
     }
@@ -339,8 +333,6 @@ export class LegislationWatchService {
 
   async toggleInstant(userId, watchId, enabled) {
     if (enabled) {
-      const paid = await this.hasPaidSubscription(userId);
-      if (!paid) this._requirePaid();
       // Auto-enable master so user can turn Instant on per-act without a prior hub step
       await this.updateAlertMasterSettings(userId, { instantMasterEnabled: true });
     }
@@ -351,8 +343,14 @@ export class LegislationWatchService {
 
   async bulkSetWatchEmail(userId, enabled) {
     if (enabled) {
-      const paid = await this.hasPaidSubscription(userId);
-      if (!paid) this._requirePaid();
+      const canEmail = await this.supabase.rpc('check_watch_email_limit', { p_user_id: userId });
+      // Soft: enable as many as limit allows via repository bulk; still check that limit > 0
+      if (canEmail.data !== true) {
+        const info = await this.getLimitInfo(userId);
+        if (info.emailLimit <= 0) {
+          this._requireLimit(false, 'Alertele email nu sunt disponibile pe abonamentul tău actual');
+        }
+      }
     }
 
     return this.repository.bulkSetEmail(userId, enabled);
@@ -422,6 +420,213 @@ export class LegislationWatchService {
     }
 
     return true;
+  }
+
+  /**
+   * Compute next weekday digest slot (L–V :55) in Europe/Bucharest.
+   */
+  _nextDigestSlot() {
+    const SLOTS = ['07:55', '09:55', '11:55', '13:55', '15:55', '17:55', '19:55', '21:55'];
+    const now = new Date();
+
+    for (let dayOffset = 0; dayOffset < 8; dayOffset += 1) {
+      const candidate = new Date(now.getTime() + dayOffset * 24 * 60 * 60 * 1000);
+      const weekday = new Intl.DateTimeFormat('en-US', {
+        timeZone: 'Europe/Bucharest',
+        weekday: 'short',
+      }).format(candidate);
+      if (weekday === 'Sat' || weekday === 'Sun') continue;
+
+      const day = new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'Europe/Bucharest',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+      }).format(candidate);
+
+      const parts = new Intl.DateTimeFormat('en-GB', {
+        timeZone: 'Europe/Bucharest',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false,
+      }).formatToParts(now);
+      const nowHour = Number(parts.find((p) => p.type === 'hour')?.value || 0);
+      const nowMinute = Number(parts.find((p) => p.type === 'minute')?.value || 0);
+      const nowMinutes = nowHour * 60 + nowMinute;
+
+      const today = new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'Europe/Bucharest',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+      }).format(now);
+
+      for (const slot of SLOTS) {
+        const [h, m] = slot.split(':').map(Number);
+        const slotMinutes = h * 60 + m;
+        if (day === today && slotMinutes <= nowMinutes) continue;
+        return { day, slot, label: `${day === today ? 'azi' : day} la ${slot}` };
+      }
+    }
+
+    return { day: null, slot: null, label: null };
+  }
+
+  async getAlertStatus(userId) {
+    const paid = await this.hasPaidSubscription(userId);
+
+    const { data: prefs } = await this.supabase
+      .from('user_preferences')
+      .select('notification_settings, preferred_categories, profession_pack_id')
+      .eq('id', userId)
+      .maybeSingle();
+
+    const settings = prefs?.notification_settings || {};
+    const digestEnabled = settings.digest_email_enabled !== false;
+    const instantMasterEnabled = settings.instant_master_enabled === true;
+    const categoryEmailEnabled = settings.category_email_enabled === true;
+    const preferredCategories = Array.isArray(prefs?.preferred_categories)
+      ? prefs.preferred_categories
+      : [];
+
+    const watches = await this.repository.listByUser(userId);
+    const { data: searches } = await this.supabase
+      .from('saved_searches')
+      .select('id, name, email_notifications_enabled, source_pack_id')
+      .eq('user_id', userId);
+
+    const searchRows = searches || [];
+    const watchEmailOn = watches.filter((w) => w.emailEnabled).length;
+    const watchInstantOn = watches.filter((w) => w.instantEnabled).length;
+    const searchEmailOn = searchRows.filter((s) => s.email_notifications_enabled).length;
+    const categoryOn = categoryEmailEnabled && preferredCategories.length > 0 ? 1 : 0;
+
+    const totalItems = watches.length + searchRows.length + (preferredCategories.length > 0 ? 1 : 0);
+    const activeDelivery =
+      watchEmailOn + watchInstantOn + searchEmailOn + (categoryEmailEnabled ? categoryOn : 0);
+
+    const { data: authUser } = await this.supabase.auth.admin.getUserById(userId);
+    const emailConfirmed = !!authUser?.user?.email_confirmed_at;
+    const userEmail = authUser?.user?.email || null;
+
+    let blockedReason = 'OK';
+    let status = 'ACTIVE';
+
+    if (!emailConfirmed) {
+      blockedReason = 'EMAIL_UNCONFIRMED';
+      status = 'BLOCKED';
+    } else if (!paid) {
+      blockedReason = 'NEEDS_SUBSCRIPTION';
+      status = totalItems > 0 ? 'CONFIGURING' : 'NEEDS_PRO';
+    } else if (!digestEnabled && watchInstantOn === 0) {
+      blockedReason = 'MASTER_OFF';
+      status = 'OFF';
+    } else if (totalItems === 0) {
+      blockedReason = 'NO_ITEMS';
+      status = 'CONFIGURING';
+    } else if (activeDelivery === 0) {
+      blockedReason = 'ALL_MUTED';
+      status = 'OFF';
+    }
+
+    const nextSlot = this._nextDigestSlot();
+
+    const { data: lastDigest } = await this.supabase
+      .from('email_digest_logs')
+      .select('digest_date, slot, articles_sent_count, primary_count, sent_at, status')
+      .eq('user_id', userId)
+      .eq('status', 'SENT')
+      .order('sent_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    const { data: historyDigests } = await this.supabase
+      .from('email_digest_logs')
+      .select('id, digest_date, slot, articles_sent_count, primary_count, sent_at, status')
+      .eq('user_id', userId)
+      .eq('status', 'SENT')
+      .order('sent_at', { ascending: false })
+      .limit(10);
+
+    const { data: historyInstant } = await this.supabase
+      .from('user_notifications')
+      .select('id, title, body, href, created_at, type')
+      .eq('user_id', userId)
+      .eq('type', 'instant_watch_alert')
+      .order('created_at', { ascending: false })
+      .limit(10);
+
+    const packIds = [
+      ...new Set([
+        prefs?.profession_pack_id,
+        ...watches.map((w) => w.sourcePackId).filter(Boolean),
+        ...searchRows.map((s) => s.source_pack_id).filter(Boolean),
+      ].filter(Boolean)),
+    ];
+
+    let packsById = {};
+    if (packIds.length) {
+      const { data: packs } = await this.supabase
+        .from('profession_packs')
+        .select('id, name_ro')
+        .in('id', packIds);
+      packsById = Object.fromEntries((packs || []).map((p) => [p.id, p.name_ro]));
+    }
+
+    return {
+      status,
+      blockedReason,
+      canReceive: paid && blockedReason === 'OK',
+      canConfigure: true,
+      digestEmailEnabled: digestEnabled,
+      instantMasterEnabled,
+      categoryEmailEnabled,
+      professionPackId: prefs?.profession_pack_id || null,
+      professionPackName: prefs?.profession_pack_id
+        ? packsById[prefs.profession_pack_id] || null
+        : null,
+      preferredCategories,
+      userEmail,
+      emailConfirmed,
+      counts: {
+        watches: watches.length,
+        watchEmailOn,
+        watchInstantOn,
+        searches: searchRows.length,
+        searchEmailOn,
+        categories: preferredCategories.length,
+        categoryEmailOn: categoryEmailEnabled,
+      },
+      nextDigest: nextSlot.slot
+        ? { day: nextSlot.day, slot: nextSlot.slot, label: nextSlot.label }
+        : null,
+      lastDigest: lastDigest
+        ? {
+            day: lastDigest.digest_date,
+            slot: lastDigest.slot,
+            articlesCount: lastDigest.articles_sent_count ?? lastDigest.primary_count ?? 0,
+            sentAt: lastDigest.sent_at,
+          }
+        : null,
+      history: {
+        digests: (historyDigests || []).map((d) => ({
+          id: d.id,
+          day: d.digest_date,
+          slot: d.slot,
+          articlesCount: d.articles_sent_count ?? d.primary_count ?? 0,
+          sentAt: d.sent_at,
+          status: d.status,
+        })),
+        instant: (historyInstant || []).map((n) => ({
+          id: n.id,
+          title: n.title,
+          body: n.body,
+          href: n.href,
+          createdAt: n.created_at,
+        })),
+      },
+      packNames: packsById,
+    };
   }
 
   /** @deprecated internal — maps GraphQL target type */

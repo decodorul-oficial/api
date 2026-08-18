@@ -876,6 +876,7 @@ export const typeDefs = `#graphql
     # Legislation watches
     getLegislationWatches: [LegislationWatch!]!
     getLegislationWatchLimitInfo: LegislationWatchLimitInfo!
+    getAlertStatus: AlertStatus!
 
     # Email ops (admin)
     getEmailOpsSummary: EmailOpsSummary!
@@ -1052,6 +1053,7 @@ export const typeDefs = `#graphql
     searchParams: JSON!
     isFavorite: Boolean!
     emailNotificationsEnabled: Boolean!
+    sourcePackId: String
     createdAt: String!
     updatedAt: String!
   }
@@ -1117,6 +1119,7 @@ export const typeDefs = `#graphql
     emailEnabled: Boolean!
     instantEnabled: Boolean!
     minConfidence: Float!
+    sourcePackId: String
     createdAt: String!
     updatedAt: String!
   }
@@ -1139,6 +1142,85 @@ export const typeDefs = `#graphql
     identifierText: String
     alertIntensity: AlertIntensity
     emailEnabled: Boolean
+  }
+
+  type AlertStatusCounts {
+    watches: Int!
+    watchEmailOn: Int!
+    watchInstantOn: Int!
+    searches: Int!
+    searchEmailOn: Int!
+    categories: Int!
+    categoryEmailOn: Boolean!
+  }
+
+  type AlertNextDigest {
+    day: String
+    slot: String
+    label: String
+  }
+
+  type AlertLastDigest {
+    day: String
+    slot: String
+    articlesCount: Int
+    sentAt: String
+  }
+
+  type AlertDigestHistoryItem {
+    id: ID!
+    day: String
+    slot: String
+    articlesCount: Int
+    sentAt: String
+    status: String
+  }
+
+  type AlertInstantHistoryItem {
+    id: ID!
+    title: String
+    body: String
+    href: String
+    createdAt: String
+  }
+
+  type AlertHistory {
+    digests: [AlertDigestHistoryItem!]!
+    instant: [AlertInstantHistoryItem!]!
+  }
+
+  type AlertStatus {
+    status: String!
+    blockedReason: String!
+    canReceive: Boolean!
+    canConfigure: Boolean!
+    digestEmailEnabled: Boolean!
+    instantMasterEnabled: Boolean!
+    categoryEmailEnabled: Boolean!
+    professionPackId: String
+    professionPackName: String
+    preferredCategories: [String!]!
+    userEmail: String
+    emailConfirmed: Boolean!
+    counts: AlertStatusCounts!
+    nextDigest: AlertNextDigest
+    lastDigest: AlertLastDigest
+    history: AlertHistory!
+    packNames: JSON!
+  }
+
+  type SendTestAlertEmailResult {
+    success: Boolean!
+    email: String
+    error: String
+    resendId: String
+  }
+
+  input ApplyProfessionPackSelectionInput {
+    keywords: [String!]
+    anchors: [String!]
+    includeCategories: Boolean
+    deliveryMode: String
   }
 
   type EmailOpsTodaySummary {
@@ -1597,9 +1679,10 @@ export const typeDefs = `#graphql
       categoryEmailEnabled: Boolean
     ): JSON!
     disableAllEmailAlerts: Boolean!
+    sendTestAlertEmail: SendTestAlertEmailResult!
 
     # Profession packs
-    applyProfessionPack(packId: String!): JSON!
+    applyProfessionPack(packId: String!, selection: ApplyProfessionPackSelectionInput): JSON!
 
     # In-app notifications
     markNotificationRead(id: ID!): UserNotification!

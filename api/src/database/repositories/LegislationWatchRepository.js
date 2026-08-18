@@ -20,6 +20,7 @@ function mapRow(row) {
     emailEnabled: row.email_enabled,
     instantEnabled: row.instant_enabled,
     minConfidence: row.min_confidence,
+    sourcePackId: row.source_pack_id ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
